@@ -27,21 +27,43 @@
 
 ## Keeping `Panel.qml` mergeable
 
-`Panel.qml` is upstream's. Everything this fork adds is an insertion, never an edit of a line upstream owns, and every block is marked:
+`Panel.qml` is upstream's. Everything this fork adds is an insertion, never an edit of a line upstream owns, and every change is marked, so the fork's delta is visible at a glance and checked by machine:
 
-```qml
-// ---------- Lenovo battery conservation ----------
-```
+- **An inserted block** is fenced at both ends:
+
+  ```qml
+  // ---- lenovo-conservation: start ----
+  Process {
+    id: conservationProbe
+    ...
+  }
+  // ---- lenovo-conservation: end ----
+  ```
+
+- **An edited line** - upstream's line, changed - carries a tail marker:
+
+  ```qml
+  onActivateRequested: root.activateCursor() // lenovo-conservation
+  ```
+
+The fence is demarcation, not protection. `git merge-file` merges by line and treats the markers as ordinary comments, so an upstream change *can* land inside a fence and auto-merge there. The rules below are what keep merges clean; the markers make the result legible.
 
 The merge is clean whenever the two sides do not share a line, so:
 
 - Adding a whole new `Process { }`, function, or panel section is free.
-- Changing a line upstream is also changing costs a conflict every time.
+- Changing a line upstream owns costs a conflict every time.
 - Reformatting, reordering, or tidying upstream code costs a conflict forever and buys nothing.
 
 Do not reformat `Model.js` unless a feature needs it. Upstream tests it in `test/shell.d/power-test.sh`, so churn there makes future merges noisy.
 
-The only edits inside code upstream owns are two methods appended to the existing `IpcHandler` block, and the panel key dispatcher's `onMoveRequested` and `onActivateRequested` handlers. If you add another, append it after those.
+The only edits of lines upstream owns are the keyboard-cursor ones: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, and the profile `Button`'s `hasCursor` and `onHovered`. A row that is not ours must not light, and the cursor must walk *between* rows, which cannot be expressed from outside the components that draw it. Each such line carries a tail marker, and so must any you add: the coverage check below fails on a changed line that has neither.
+
+Two files escape the rule, on purpose:
+
+- `manifest.json` is JSON, which has no comments. Its delta - id, name, description, `clonedFrom` - is visible only in the diff.
+- `Conservation.js` is new, so the whole file is the fork's; the file boundary is the fence.
+
+**The markers are checked, not merely conventional.** `bin/check` runs two stages over the tracked files: the fences must balance (every start its end, no end unmet), and every line this fork has added to `Panel.qml` against the pinned base must sit inside a fence or carry a tail marker - an unmarked change fails the check. `tools/sync-upstream` additionally refuses to merge over unbalanced fences, the way it already refuses to merge over leftover conflict markers.
 
 **Check a change stays mergeable rather than assuming it.** Three-way merge `Panel.qml` against a deliberately adversarial upstream:
 
@@ -133,15 +155,19 @@ Run it before committing. It is everything CI runs, plus the two stages that nee
 | `bin/check-agent-files` | an agent-instruction file anywhere in the tree |
 | `manifest.json` parse | invalid JSON |
 | `node --test`, both suites | any test failure |
+| fork marker balance | a `lenovo-conservation` fence that starts and does not end, or vice versa (runs in CI too) |
 | `Model.js` against the pinned upstream sha | any divergence at all (runs in CI too) |
+| fork marker coverage | a `Panel.qml` line this fork changed that is neither fenced nor tail-marked |
 | `qmllint` type resolution | `Panel.qml` referencing shell API this omarchy lacks |
 | `Style` members | `Panel.qml` using a `Style` member the installed omarchy lacks |
 | `omarchy plugin validate` | manifest schema |
 | `tools/sync-upstream --check` | never; reports where this fork sits |
 
-Four of those deserve a note.
+Five of those deserve a note.
 
 **`Model.js` must stay byte-identical to upstream.** The README calls it unchanged, and every line added to it is a line that can conflict on the next sync. Upstream tests it in `test/shell.d/power-test.sh`, so churn there is noise for them as well. If this stage fails, the fix is almost always to revert `Model.js` and put the code somewhere else.
+
+**The marker stages keep the fork's delta marked.** Balance is comment-only and needs nothing, so it runs in CI too. Coverage diffs `Panel.qml` against the pinned base and requires that every added line sit inside a `lenovo-conservation` fence or carry a tail marker - it is the machine's eye on the rule that every change from upstream is marked, and it is why an unmarked insertion is a failed check rather than a style gripe.
 
 **The shell API stages are the important ones.** A cloned first-party panel is not self-contained: it imports types and singleton members the shell provides, so panel code from a newer omarchy can reference API this machine does not have. `ShellIpc` and `Style.duration()` both shipped here first and both failed silently, the widget just never appearing in the bar. Type resolution reuses qmllint's own resolver rather than a hand-rolled list, so nothing new to maintain; `signal-handler-parameters` is excluded because upstream's own file produces it. The `Style` check exists separately because qmllint structurally cannot catch a missing member on a singleton that does resolve.
 
@@ -185,7 +211,7 @@ The row's title is bold because the shared `Toggle` component hardcodes `font.bo
 
 The cursor stays where it was last put. Hovering a row leaves it lit after the mouse moves away, because that is upstream's behaviour: `cursorActive` is only ever cleared when the battery appears, so a profile button stays lit the same way. We match it rather than giving our row a second hover model.
 
-This is the one place where adding a feature meant changing upstream's code rather than only adding to it: the key dispatcher's `onMoveRequested` and `onActivateRequested`. Both now call one function of ours, and upstream's `selectProfileByDelta`, `activateSelectedProfile` and `setProfile` are untouched behind them. The rules in [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) apply to those two handlers from now on.
+The keyboard cursor is the one place where adding a feature meant changing upstream's code rather than only adding to it: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, and the profile `Button`'s `hasCursor` and `onHovered` - a row that is not ours must not light, and hovering it must not steal the cursor. The handlers now call one function of ours, and upstream's `selectProfileByDelta`, `activateSelectedProfile` and `setProfile` are untouched behind them. The rules in [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) apply to those from now on.
 
 ## Security
 

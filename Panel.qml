@@ -5,7 +5,9 @@ import Quickshell.Services.UPower
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+// ---- lenovo-conservation: start ----
 import "Conservation.js" as Conservation
+// ---- lenovo-conservation: end ----
 
 Panel {
   id: root
@@ -20,7 +22,7 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
-  // ---------- Lenovo battery conservation ----------
+  // ---- lenovo-conservation: start ----
   // The installed helper is the only thing that touches the attribute. Every flag
   // below starts pessimistic, so a probe that never runs leaves a plainly
   // unusable row rather than a toggle that looks live.
@@ -48,6 +50,7 @@ Panel {
     if (!conservationKnown) return "Current mode unknown: the attribute reported a value this plugin does not recognise."
     return "Stop charging around 80% to reduce long-term wear."
   }
+  // ---- lenovo-conservation: end ----
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -90,7 +93,7 @@ Panel {
     return Model.profileIcon(name)
   }
 
-  // ---------- Lenovo battery conservation ----------
+  // ---- lenovo-conservation: start ----
   // Fold whatever the helper printed into the flags. Anything unreadable leaves
   // conservationKnown false, which keeps the row disabled rather than showing
   // "off" for a state nobody read.
@@ -139,6 +142,7 @@ Panel {
     if (root.conservationFocused) root.requestConservationToggle()
     else root.activateSelectedProfile()
   }
+  // ---- lenovo-conservation: end ----
 
   readonly property bool fullyCharged: {
     var device = UPower.displayDevice
@@ -217,8 +221,9 @@ Panel {
     if (!batteryProc.running) batteryProc.running = true
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
-    // ---------- Lenovo battery conservation ----------
+    // ---- lenovo-conservation: start ----
     root.refreshConservation()
+    // ---- lenovo-conservation: end ----
   }
 
   function updateKeyValue(raw, targetName) {
@@ -264,7 +269,7 @@ Panel {
     function hide() { root.close() }
     function toggle() { root.toggle() }
     function togglePercentage() { root.togglePercentage() }
-    // ---------- Lenovo battery conservation ----------
+    // ---- lenovo-conservation: start ----
     // The value asked for, not the result: pkexec prompts, so the write has not
     // happened yet when this replies.
     function toggleConservation(): string { return root.requestConservationToggle() }
@@ -272,6 +277,7 @@ Panel {
       if (!root.conservationKnown) return "unknown"
       return root.conservationActive ? "on" : "off"
     }
+    // ---- lenovo-conservation: end ----
   }
 
   onOpenedChanged: {
@@ -285,10 +291,11 @@ Panel {
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
       cursorActive = false
-      // ---------- Lenovo battery conservation ----------
+      // ---- lenovo-conservation: start ----
       // Reset with cursorActive: a row focused in the last session would
       // otherwise light on the first key press after reopening.
       conservationFocused = false
+      // ---- lenovo-conservation: end ----
     }
   }
 
@@ -321,7 +328,7 @@ Panel {
     onExited: root.refresh()
   }
 
-  // ---------- Lenovo battery conservation ----------
+  // ---- lenovo-conservation: start ----
   // Reading needs no privilege, so this never prompts. The helper's path is
   // passed as an argument, and the string itself is fixed, so nothing the
   // caller controls reaches the shell.
@@ -358,6 +365,7 @@ Panel {
       root.refreshConservation()
     }
   }
+  // ---- lenovo-conservation: end ----
 
   Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
 
@@ -436,9 +444,9 @@ Panel {
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         if (dx !== 0) root.selectProfileByDelta(dx)
-        else if (dy !== 0) root.moveFocusRow(dy)
+        else if (dy !== 0) root.moveFocusRow(dy) // lenovo-conservation
       }
-      onActivateRequested: root.activateCursor()
+      onActivateRequested: root.activateCursor() // lenovo-conservation
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -622,20 +630,20 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && !root.conservationFocused && root.profileIndex === index
+                hasCursor: root.cursorActive && !root.conservationFocused && root.profileIndex === index // lenovo-conservation
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
                     root.profileIndex = index
-                    root.conservationFocused = false
+                    root.conservationFocused = false // lenovo-conservation
                   }
                 }
               }
             }
           }
 
-          // ---------- Lenovo battery conservation ----------
+          // ---- lenovo-conservation: start ----
           Toggle {
             width: parent.width
             label: "Conservation Mode"
@@ -657,6 +665,7 @@ Panel {
             }
             onClicked: root.requestConservationToggle()
           }
+          // ---- lenovo-conservation: end ----
         }
       }
     }

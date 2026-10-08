@@ -71,6 +71,7 @@ jobs:
 
       # CI has no Omarchy, so the manifest validation and shell API stages are
       # always skipped here; bin/check lists them so a skipped run never reads
-      # as fully green. The Model.js comparison does run (sync-upstream --check
-      # fetches its mirror), keeping that invariant enforced by CI rather than
-      # by whoever remembers to run bin/check locally.
+      # as fully green. The Model.js comparison and the Panel.qml marker
+      # coverage do run (sync-upstream --check fetches its mirror), keeping
+      # those invariants enforced by CI rather than by whoever remembers to run
+      # bin/check locally.

@@ -28,6 +28,30 @@ python3 -c 'import json; json.load(open("manifest.json"))'
 node --test tests/conservation.test.cjs tests/helper.test.cjs
 
 # ---------------------------------------------------------------------------
+# Fork markers must balance: every `lenovo-conservation: start` its `end`,
+# no `end` unmet. Comment-only, so it runs in CI too.
+# ---------------------------------------------------------------------------
+for f in Panel.qml Model.js Conservation.js; do
+	awk '
+		/lenovo-conservation: start/ { depth++; next }
+		/lenovo-conservation: end/ {
+			if (depth == 0) {
+				printf "  %s:%d: end marker with no matching start\n", FILENAME, FNR > "/dev/stderr"
+				bad = 1
+			}
+			depth--
+		}
+	 END {
+		if (depth != 0) {
+			printf "%s: %d start marker(s) without an end\n", FILENAME, depth > "/dev/stderr"
+			bad = 1
+		}
+		exit bad
+	}' "$f" || exit 1
+done
+echo "fork markers: balanced"
+
+# ---------------------------------------------------------------------------
 # Where this fork sits against upstream. Never gates: there is nothing to fail,
 # it is only ever information.
 # ---------------------------------------------------------------------------
@@ -56,6 +80,53 @@ if [ -d "$mirror" ] && git --git-dir="$mirror" cat-file -e "${pinned}^{commit}" 
 	fi
 else
 	skip "no upstream mirror at $mirror - not comparing Model.js (tools/sync-upstream failed to fetch one)"
+fi
+
+# ---------------------------------------------------------------------------
+# Every line this fork has added to Panel.qml must be marked: inside a fence,
+# or a tail marker on a line upstream owns. Needs the mirror, like the stage
+# above.
+# ---------------------------------------------------------------------------
+if [ -d "$mirror" ] && git --git-dir="$mirror" cat-file -e "${pinned}^{commit}" 2>/dev/null; then
+	unmarked=$(awk '
+		/^@@ / {
+			if (match($0, /\+[0-9]+(,[0-9]+)?/)) {
+				range = substr($0, RSTART + 1, RLENGTH - 1)
+				if ((c = index(range, ",")) > 0) n = substr(range, 1, c - 1) + 0
+				else n = range + 0
+			} else n = 0
+			in_hunk = 1
+			next
+		}
+		/^--- / || /^\+\+\+ / { in_hunk = 0; next }
+		!in_hunk { next }
+		/^\+/ {
+			line = substr($0, 2)
+			# Blank lines are formatting, not content.
+			if (line ~ /^[[:space:]]*$/) { n++; next }
+			covered = 0
+			if (line ~ /lenovo-conservation: start ----[[:space:]]*$/) { open_at = n; covered = 1 }
+			else if (line ~ /lenovo-conservation: end ----[[:space:]]*$/) { open_at = 0; covered = 1 }
+			else if (open_at > 0) covered = 1
+			else if (line ~ /[[:space:]]\/\/ lenovo-conservation[[:space:]]*$/) covered = 1
+			if (!covered) { printf "  Panel.qml:%d: %s\n", n, line; bad = 1 }
+			n++
+			next
+		}
+		/^ / { n++ }
+		END { exit bad }
+	' <(git --git-dir="$mirror" show "${pinned}:${upstream_path}/Panel.qml" | diff -u - Panel.qml)) || true
+	# awk exits 1 when it has found an unmarked line: the report, not a failure.
+	if [ -n "$unmarked" ]; then
+		echo "Panel.qml has fork changes that carry no marker:" >&2
+		printf '%s\n' "$unmarked" >&2
+		echo "Fence the block, or tail-mark an edited line, the way every other" >&2
+		echo "change in the file is marked - see docs/CONTRIBUTING.md." >&2
+		exit 1
+	fi
+	echo "Panel.qml: every forked line is fenced or tail-marked"
+else
+	skip "no upstream mirror at $mirror - not checking Panel.qml marker coverage (tools/sync-upstream failed to fetch one)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -344,6 +344,17 @@ main() {
 		die "these files still contain conflict markers from an earlier run, so merging again would nest another set inside them: ${stuck% } Resolve them (or git checkout them to start over), then re-run."
 	fi
 
+	# Unbalanced fork markers would merge into the file and only surface later
+	# in bin/check, so gate them here, the way the check above gates conflict markers.
+	for name in "${TRACKED[@]}"; do
+		awk '
+			/lenovo-conservation: start/ { depth++; next }
+			/lenovo-conservation: end/ { if (depth == 0) exit 1; depth-- }
+			END { if (depth != 0) exit 1 }
+		' "$name" ||
+			die "$name has unbalanced fork markers - a 'lenovo-conservation: start' without its 'end', or an 'end' with no start. Balance them, then re-run."
+	done
+
 	merge
 
 	if ((${#CONFLICTS[@]})); then
