@@ -1,6 +1,10 @@
 #!/bin/bash
 #
-# lenovo-power-conservation: read or set Lenovo battery conservation mode.
+# lenovo-power-conservation: read the battery's charge type.
+#
+# The file is still named for the old conservation-mode behaviour (the rename
+# to bin/charge-types lands in a later ticket); its behaviour is now the
+# charge_types protocol: `list` and `status` here, `set` with it.
 #
 # Source:   https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation
 # License:  MIT, the same terms as Omarchy itself.
@@ -11,13 +15,15 @@
 # only thing the plugin asks to be elevated.
 #
 # The trust boundary: it takes no path from its caller - it resolves the kernel
-# attribute itself, from the glob fixed below - and it writes only the two values
-# that attribute can hold. Nothing re-executes itself either, `set` requiring
-# root already, so a copy in a user-writable directory cannot elevate itself.
+# attribute itself, from the glob fixed below - and it will write only values
+# it just read from the attribute's own list. Nothing re-executes itself
+# either, `set` requiring root already, so a copy in a user-writable directory
+# cannot elevate itself.
 #
 # Usage:
+#   lenovo-power-conservation list
 #   lenovo-power-conservation status
-#   pkexec /usr/local/libexec/lenovo-power/conservation set <0|1>
+#   pkexec /usr/local/libexec/lenovo-power/conservation set <type>
 
 set -euo pipefail
 
@@ -28,8 +34,9 @@ readonly MARKER='lenovo-power-conservation: installed by the omarchy lenovo-powe
 # The installed copy, named only for error messages. Never used to run anything.
 readonly PACKAGED_PATH=/usr/local/libexec/lenovo-power/conservation
 
-# The kernel attribute. Fixed here, never assembled from caller input.
-readonly ATTR_GLOB='/sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode'
+# The power-supply class. Fixed here, never assembled from caller input. The
+# charge_types attribute (kernel >= 6.14) sits in each supply's directory.
+readonly SUPPLY_GLOB='/sys/class/power_supply/*'
 
 # Distinct exit codes so a caller can tell the cases apart without parsing text.
 readonly EXIT_OK=0
@@ -51,95 +58,124 @@ die() {
 	exit "$2"
 }
 
-# Print the attribute's path, or fail if this machine does not have one. This is
-# the only place a path enters the script.
-attr_path() {
-	local path
-	# Intentional word splitting: ATTR_GLOB is a glob.
+# Print the name of the bracketed entry of a charge_types read, or fail if the
+# read does not contain exactly one.
+active_name() {
+	local raw=$1 name count=0 active=
+
+	# Intentional word splitting: the attribute's whitespace-separated entries.
 	# shellcheck disable=SC2086
-	for path in $ATTR_GLOB; do
-		[[ -f $path ]] || continue
-		printf '%s\n' "$path"
-		return 0
+	for name in $raw; do
+		if [[ $name == \[*\] ]]; then
+			count=$((count + 1))
+			active=${name:1:${#name} - 2}
+		fi
 	done
+
+	((count == 1)) || return 1
+	printf '%s\n' "$active"
+}
+
+# Globals filled by attr_path: the resolved attribute, its just-read contents,
+# and the failure word to report when nothing qualifies.
+ATTR_PATH=
+ATTR_RAW=
+REJECT_WORD=unsupported
+
+# Resolve the charge_types attribute we act on, or fail with REJECT_WORD set.
+#
+# A candidate supply counts only if all of these hold (ADR 0001):
+#   1. its `type` file reads exactly "Battery" - stock mainline puts
+#      charge_types on *every* supply, AC adapters included, so file
+#      existence alone is not detection;
+#   2. its `charge_types` file exists and reads successfully;
+#   3. the read output contains exactly one bracketed active entry.
+#
+# The first qualifying supply in lexical glob order wins (dual-battery
+# machines: BAT0 before BAT1). When none qualifies, REJECT_WORD keeps the
+# failure words apart: "unsupported" when no readable battery exists at all,
+# "unknown" when a battery reads back a list with no single active entry.
+attr_path() {
+	local path type raw saw_readable_battery=0
+
+	# Intentional word splitting: SUPPLY_GLOB is a glob.
+	# shellcheck disable=SC2086
+	for path in $SUPPLY_GLOB; do
+		[[ -d $path ]] || continue
+
+		type=$(cat -- "$path/type" 2>/dev/null) || continue
+		[[ $type == Battery ]] || continue
+
+		[[ -f $path/charge_types ]] || continue
+		raw=$(cat -- "$path/charge_types" 2>/dev/null) || continue
+
+		saw_readable_battery=1
+		if active_name "$raw" >/dev/null; then
+			REJECT_WORD=unsupported
+			ATTR_PATH=$path/charge_types
+			ATTR_RAW=$raw
+			return 0
+		fi
+	done
+
+	REJECT_WORD=unsupported
+	if ((saw_readable_battery)); then
+		REJECT_WORD=unknown
+	fi
 	return 1
 }
 
-# Read the current value. Unprivileged: the attribute is world-readable.
-cmd_status() {
-	local path raw
-
-	path=$(attr_path) || {
-		printf 'unsupported\n'
-		return "$EXIT_UNSUPPORTED"
-	}
-
-	raw=$(cat -- "$path" 2>/dev/null) ||
-		die "cannot read $path" "$EXIT_ERROR"
-
-	case $raw in
-	1)
-		printf '1\n'
-		return "$EXIT_OK"
-		;;
-	0)
-		printf '0\n'
-		return "$EXIT_OK"
-		;;
-	*)
-		# Present but unrecognised, and deliberately not reported as off: a
-		# caller that cannot read the state should not conclude anything.
+# Report the resolution failure: the failure word on stdout for the read
+# commands, which the panel and humans both parse it as.
+reject() {
+	if [[ $REJECT_WORD == unknown ]]; then
 		printf 'unknown\n'
 		return "$EXIT_UNKNOWN"
-		;;
-	esac
+	fi
+	printf 'unsupported\n'
+	return "$EXIT_UNSUPPORTED"
 }
 
-# Write the value. Requires already being root.
-cmd_set() {
-	local value=$1 path confirm
+# Print the battery's charge types, one per line, the active one in
+# [brackets]. Unprivileged: the attribute is world-readable.
+cmd_list() {
+	local name
 
-	# The entire validation surface: one argument, exactly "0" or "1". Anything
-	# else is refused before a path is resolved or a byte is written.
-	case $value in
-	0 | 1) ;;
-	*) die "refusing to write '$value': expected exactly 0 or 1" "$EXIT_USAGE" ;;
-	esac
+	attr_path || reject
 
-	if ((EUID != 0)); then
-		die "setting conservation mode needs root. Run: pkexec $PACKAGED_PATH set $value" "$EXIT_USAGE"
-	fi
+	# The kernel emits the list space-separated on one line; the contract is
+	# one type per line, so split it.
+	# Intentional word splitting: each entry of the just-read list.
+	# shellcheck disable=SC2086
+	for name in $ATTR_RAW; do
+		printf '%s\n' "$name"
+	done
+	return "$EXIT_OK"
+}
 
-	path=$(attr_path) ||
-		die "no conservation_mode attribute found; this is not a supported Lenovo" "$EXIT_UNSUPPORTED"
+# Print the active charge type name alone, one word. Unprivileged.
+cmd_status() {
+	attr_path || reject
 
-	printf '%s' "$value" >"$path" ||
-		die "failed writing $path" "$EXIT_ERROR"
-
-	# Read it back rather than reporting success on the strength of a write that
-	# returned zero. The kernel is free to reject a value.
-	confirm=$(cat -- "$path" 2>/dev/null) ||
-		die "wrote $path but cannot read it back" "$EXIT_ERROR"
-
-	if [[ $confirm != "$value" ]]; then
-		die "wrote '$value' to $path but it reads '$confirm'" "$EXIT_ERROR"
-	fi
-
-	printf '%s\n' "$value"
+	active_name "$ATTR_RAW"
+	return "$EXIT_OK"
 }
 
 main() {
 	case ${1-} in
+	list)
+		(($# == 1)) || die "list takes no arguments" "$EXIT_USAGE"
+		cmd_list
+		;;
 	status)
 		(($# == 1)) || die "status takes no arguments" "$EXIT_USAGE"
 		cmd_status
 		;;
 	set)
-		(($# == 2)) || die "set takes exactly one argument, 0 or 1" "$EXIT_USAGE"
-		cmd_set "$2"
+		die "set arrives with a later change; usage: ${0##*/} list | status" "$EXIT_USAGE"
 		;;
 	*)
-		die "usage: ${0##*/} status | ${0##*/} set <0|1>" "$EXIT_USAGE"
+		die "usage: ${0##*/} list | ${0##*/} status" "$EXIT_USAGE"
 		;;
 	esac
 }

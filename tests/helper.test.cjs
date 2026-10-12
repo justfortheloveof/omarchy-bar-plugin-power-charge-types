@@ -1,21 +1,22 @@
-// Tests for bin/lenovo-power-conservation - run with:
+// Tests for bin/lenovo-power-conservation, now the `charge_types` helper -
+// run with:
 //   node --test tests/helper.test.cjs
 //
-// The helper hardcodes its sysfs glob and its installed path, both on purpose, so
-// the tests run a copy with those two constants rewritten into a temporary tree.
-// Under test are the argument validation, the value parsing and the read-back,
-// not the literal paths.
+// The helper hardcodes its power_supply glob and its installed path, both on
+// purpose, so the tests run a copy with those two constants rewritten into a
+// temporary sysfs-shaped tree. Under test are the supply resolution, the
+// bracket parsing and the list/status contracts, not the literal paths.
 //
 // The write path needs to look like root, which is what `unshare -r` is for: a
 // user namespace where the caller is uid 0. That exercises the real privileged
-// branch, including the PATH pin and the read-back, with no root on the host and
-// nothing on /sys touched.
+// branch, including the PATH pin and the read-back, with no root on the host
+// and nothing on /sys touched.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const HELPER = path.join(__dirname, "..", "bin", "lenovo-power-conservation");
 
@@ -37,29 +38,41 @@ const ROOT_SIM = (() => {
   return { ok: true };
 })();
 
-// Build a helper wired to a throwaway "sysfs" and report back a runner.
+// Build a helper wired to a throwaway /sys/class/power_supply tree and report
+// back a runner.
 //
-// `value` seeds the fake attribute; pass undefined to leave it absent.
-function harness({ value } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lenovo-power-"));
-  const sysfs = path.join(root, "sys", "bus", "platform", "drivers", "ideapad_acpi", "VPC200C:00");
-  const attr = path.join(sysfs, "conservation_mode");
-  const packagedDir = path.join(root, "libexec", "lenovo-power");
+// `supplies` maps a supply directory name (BAT0, ADP1, ...) to an object:
+//   type:            contents of the supply's `type` file (omit to leave it absent)
+//   chargeTypes:     contents of its `charge_types` file (omit to leave it absent)
+//   chargeTypesMode: chmod for that file (e.g. 0o000 to make the read fail)
+//   chargeTypesFifo: make `charge_types` a FIFO, whose read side the fake
+//                    kernel (below) plays, so a write/read-back round trip can
+//                    be faked: a plain file cannot keep the brackets the real
+//                    attribute re-emits.
+function harness(supplies = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "power-charge-types-"));
+  const psDir = path.join(root, "sys", "class", "power_supply");
+  const dirs = {};
 
-  fs.mkdirSync(sysfs, { recursive: true });
-  fs.mkdirSync(packagedDir, { recursive: true });
-  if (value !== undefined) fs.writeFileSync(attr, value);
+  for (const [name, s] of Object.entries(supplies)) {
+    const dir = path.join(psDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    if (s.type !== undefined) fs.writeFileSync(path.join(dir, "type"), s.type);
+    if (s.chargeTypes !== undefined) {
+      fs.writeFileSync(path.join(dir, "charge_types"), s.chargeTypes);
+      if (s.chargeTypesMode !== undefined) fs.chmodSync(path.join(dir, "charge_types"), s.chargeTypesMode);
+    }
+    if (s.chargeTypesFifo) fs.mkfifo(path.join(dir, "charge_types"));
+    dirs[name] = dir;
+  }
 
   // Rewrite the two constants so the copy looks at our tree instead of /sys.
   // Everything else in the script is the code under test.
   const script = path.join(root, "helper");
   const rewritten = fs
     .readFileSync(HELPER, "utf8")
-    .replace(/^readonly PACKAGED_PATH=.*$/m, `readonly PACKAGED_PATH=${packagedDir}/conservation`)
-    .replace(
-      /^readonly ATTR_GLOB=.*$/m,
-      `readonly ATTR_GLOB='${root}/sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode'`
-    );
+    .replace(/^readonly PACKAGED_PATH=.*$/m, `readonly PACKAGED_PATH=${root}/libexec/lenovo-power/conservation`)
+    .replace(/^readonly SUPPLY_GLOB=.*$/m, `readonly SUPPLY_GLOB='${psDir}/*'`);
   fs.writeFileSync(script, rewritten, { mode: 0o755 });
 
   const run = (args, { asRoot = false } = {}) => {
@@ -70,8 +83,7 @@ function harness({ value } = {}) {
       throw new Error(
         `root simulation unavailable, so the helper's privileged branch cannot be ` +
           `exercised: ${ROOT_SIM.why}\n` +
-          `These six tests are the only coverage of the write path; this is a ` +
-          `broken test environment, not a helper failure.\n` +
+          `This is a broken test environment, not a helper failure.\n` +
           `On Ubuntu 24.04+:\n` +
           `  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
       );
@@ -82,311 +94,176 @@ function harness({ value } = {}) {
       ? spawnSync("unshare", ["-r", script, ...args], { encoding: "utf8" })
       : spawnSync(script, [...args], { encoding: "utf8" });
     if (res.error) throw res.error;
-    return { code: res.status, out: res.stdout.trim(), err: res.stderr.trim() };
+    return { code: res.status, out: res.stdout.replace(/\n$/, ""), err: res.stderr.trim() };
   };
 
-  return { run, attr, root };
+  // Play the kernel for a FIFO attribute: pair with the helper's write-open,
+  // record what it wrote, then serve `readback` to the helper's read-back.
+  // The open() pairings make this deterministic - no sleeps, no races.
+  const fakeKernel = (supplyName, readback, logFile) => {
+    const fifo = path.join(dirs[supplyName], "charge_types");
+    const prog = [
+      "const fs = require('node:fs');",
+      `const f = ${JSON.stringify(fifo)};`,
+      "let fd = fs.openSync(f, 'r');", // pairs with the helper's write-open
+      "const written = fs.readFileSync(fd);",
+      "fs.closeSync(fd);",
+      `fs.writeFileSync(${JSON.stringify(logFile)}, written);`,
+      "fd = fs.openSync(f, 'w');", // pairs with the helper's read-back open
+      `fs.writeSync(fd, ${JSON.stringify(readback)});`,
+      "fs.closeSync(fd);",
+    ].join("\n");
+    return spawn(process.execPath, ["-e", prog], { stdio: "ignore" });
+  };
+
+  return { run, root, dirs, fakeKernel, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test("status on a machine with no attribute reports unsupported", () => {
-  // This is what an HP, or any other non-Lenovo, gets. Exit 3, not a failure.
-  const { run } = harness();
-  const r = run(["status"]);
+// ---------------------------------------------------------------------------
+// Resolution: which supply does the helper act on, and when is there none.
+// ---------------------------------------------------------------------------
+
+test("a machine with no power supplies at all reports unsupported", (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  // This is what a machine with an empty /sys/class/power_supply gets.
+  // Exit 3, not a failure: the panel hides the row.
+  const r = h.run(["list"]);
+  assert.equal(r.code, 3);
+  assert.equal(r.out, "unsupported");
+  assert.equal(h.run(["status"]).code, 3);
+});
+
+test("non-battery supplies are rejected by the resolution filter", (t) => {
+  // Stock mainline puts charge_types on *every* supply, AC adapters included,
+  // so file existence is not detection: the filter requires type = Battery.
+  const h = harness({
+    ADP1: { type: "Mains", chargeTypes: "Fast [Standard]" },
+    USBC: { type: "USB", chargeTypes: "Fast [Standard]" },
+    "ucsi-source-psy-USBC000:001": { type: "USB" },
+  });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
+  assert.equal(r.code, 3, "Mains/USB supplies must not count as a battery");
+  assert.equal(r.out, "unsupported");
+});
+
+test("a battery with no charge_types file is rejected", (t) => {
+  // The omarchy kernel only creates the attribute for batteries that have one;
+  // a battery directory without it offers no control.
+  const h = harness({ BAT0: { type: "Battery" } });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
   assert.equal(r.code, 3);
   assert.equal(r.out, "unsupported");
 });
 
-test("status reads both values the attribute can hold", () => {
-  for (const [seed, expected] of [["1", "1"], ["0", "0"]]) {
-    const { run } = harness({ value: seed });
-    const r = run(["status"]);
-    assert.equal(r.code, 0);
+test("a battery whose charge_types cannot be read is rejected", (t) => {
+  // Present but unreadable is "no supply", not "unparseable": the distinction
+  // is what keeps an unreadable attribute out of the unknown bucket. Runs
+  // unprivileged on purpose - the unreadability is the point.
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard", chargeTypesMode: 0o000 } });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
+  assert.equal(r.code, 3);
+  assert.equal(r.out, "unsupported");
+});
+
+test("a battery that reads a list with no bracketed entry is unknown", (t) => {
+  // Present and readable, but no active entry: the helper cannot tell the
+  // caller what is active, and must not guess. Exit 4, the word "unknown".
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard" } });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
+  assert.equal(r.code, 4);
+  assert.equal(r.out, "unknown");
+  assert.equal(h.run(["status"]).code, 4);
+});
+
+test("a list with more than one bracketed entry is unknown", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "[Fast] Standard [Long_Life]" } });
+  t.after(h.cleanup);
+  const r = h.run(["status"]);
+  assert.equal(r.code, 4);
+  assert.equal(r.out, "unknown");
+});
+
+test("the first qualifying battery in lexical glob order wins", (t) => {
+  // Dual-battery machines: BAT0 before BAT1, the way the glob expands.
+  const h = harness({
+    BAT0: { type: "Battery", chargeTypes: "Fast [Standard]" },
+    BAT1: { type: "Battery", chargeTypes: "[Fast] Standard" },
+  });
+  t.after(h.cleanup);
+  assert.equal(h.run(["status"]).out, "Standard", "BAT0 must win over BAT1");
+});
+
+test("a battery that fails the filter yields to a later one", (t) => {
+  // BAT0 exists but has no attribute; BAT1 is the first that qualifies.
+  const h = harness({
+    BAT0: { type: "Battery" },
+    BAT1: { type: "Battery", chargeTypes: "Fast [Long_Life]" },
+  });
+  t.after(h.cleanup);
+  assert.equal(h.run(["status"]).out, "Long_Life");
+});
+
+// ---------------------------------------------------------------------------
+// list / status: the stdout contract.
+// ---------------------------------------------------------------------------
+
+test("list prints one type per line, the active one in brackets", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard [Long_Life]" } });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "Fast\nStandard\n[Long_Life]");
+});
+
+test("list splits the attribute's entries on any whitespace", (t) => {
+  // The kernel emits spaces; accept the other separators the attribute could
+  // plausibly carry, since word splitting sees them all alike.
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast\tStandard\n[Long_Life]" } });
+  t.after(h.cleanup);
+  const r = h.run(["list"]);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "Fast\nStandard\n[Long_Life]");
+});
+
+test("status prints the active type name alone, brackets stripped", (t) => {
+  for (const [seed, expected] of [
+    ["[Fast] Standard Long_Life", "Fast"],
+    ["Fast [Standard] Long_Life", "Standard"],
+    ["Fast Standard [Long_Life]", "Long_Life"],
+  ]) {
+    const h = harness({ BAT0: { type: "Battery", chargeTypes: seed } });
+    const r = h.run(["status"]);
+    assert.equal(r.code, 0, `"${seed}"`);
     assert.equal(r.out, expected);
   }
 });
 
-test("status tolerates a trailing newline in the attribute", () => {
-  const { run } = harness({ value: "1\n" });
-  assert.equal(run(["status"]).out, "1");
+test("a trailing newline in the attribute is tolerated", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard [Long_Life]\n" } });
+  t.after(h.cleanup);
+  assert.equal(h.run(["status"]).out, "Long_Life");
 });
 
-test("status reports an unrecognised value as unknown, not as off", () => {
-  // Exit 4 and the word "unknown": a caller that cannot read the state must not
-  // conclude it is off, or a toggle would be derived from a guess.
-  for (const seed of ["2", "", "banana", "01"]) {
-    const { run } = harness({ value: seed });
-    const r = run(["status"]);
-    assert.equal(r.code, 4, `"${seed}" should be unknown`);
-    assert.equal(r.out, "unknown");
-  }
-});
-
-test("status takes no arguments", () => {
-  const { run } = harness({ value: "0" });
-  assert.equal(run(["status", "1"]).code, 2);
-});
-
-test("set is refused without root, and says what to run instead", () => {
-  const { run, attr } = harness({ value: "0" });
-  const r = run(["set", "1"]);
-  assert.equal(r.code, 2);
-  assert.match(r.err, /needs root/);
-  assert.match(r.err, /pkexec/, "the error should name the command to run");
-  assert.equal(fs.readFileSync(attr, "utf8"), "0", "and it must not have written anything");
-});
-
-test("set rejects anything that is not exactly 0 or 1", () => {
-  // The entire validation surface. Each of these would be a different thing to
-  // hand to a root shell if it got through.
-  const bad = [
-    ["2"],
-    ["-1"],
-    ["01"],
+test("list and status take no arguments, and unknown subcommands are refused", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast [Standard]" } });
+  t.after(h.cleanup);
+  for (const args of [
+    ["list", "extra"],
+    ["status", "extra"],
+    [],
+    ["help"],
+    ["--help"],
+    ["LIST"],
+    ["Status"],
+    ["--status"],
+    ["status", "--json"],
     [""],
-    [" "],
-    ["1 "],
-    [" 1"],
-    ["1\n"],
-    ["0; rm -rf /"],
-    ["$(id)"],
-    ["`id`"],
-    ["1 && reboot"],
-    ["0|0"],
-    ["true"],
-    ["1.0"],
-  ];
-  for (const args of bad) {
-    const { run, attr } = harness({ value: "0" });
-    const r = run(["set", ...args], { asRoot: true });
-    assert.equal(r.code, 2, `set ${JSON.stringify(args[0])} should be refused`);
-    assert.equal(fs.readFileSync(attr, "utf8"), "0", `set ${JSON.stringify(args[0])} must not write`);
-  }
-});
-
-test("set takes exactly one argument", () => {
-  for (const args of [[], ["0", "1"], ["0", "extra"], ["0", "1", "2"]]) {
-    const { run } = harness({ value: "0" });
-    assert.equal(run(["set", ...args], { asRoot: true }).code, 2, `set ${args.length} args`);
-  }
-});
-
-test("set writes both values when root", () => {
-  for (const target of ["1", "0"]) {
-    const { run, attr } = harness({ value: target === "1" ? "0" : "1" });
-    const r = run(["set", target], { asRoot: true });
-    assert.equal(r.code, 0, `set ${target} should succeed`);
-    assert.equal(r.out, target);
-    assert.equal(fs.readFileSync(attr, "utf8"), target);
-  }
-});
-
-test("set writes without a trailing newline", () => {
-  // sysfs attributes are written bare; a newline would be part of the value.
-  const { run, attr } = harness({ value: "0" });
-  assert.equal(run(["set", "1"], { asRoot: true }).code, 0);
-  assert.equal(fs.readFileSync(attr, "utf8"), "1");
-});
-
-test("set refuses when there is no attribute to write", () => {
-  const { run } = harness();
-  const r = run(["set", "1"], { asRoot: true });
-  assert.equal(r.code, 3);
-  assert.match(r.err, /no conservation_mode attribute/);
-});
-
-test("the helper checks the write instead of trusting it", () => {
-  // Not behavioural: making a write fail needs a sysfs attribute that refuses a
-  // value, and a plain file cannot be one, so assert the check is present: the
-  // helper re-reads what it wrote and errors if the kernel did not keep it.
-  const source = fs.readFileSync(HELPER, "utf8");
-  assert.match(source, /cat -- "\$path"/, "should read the attribute back");
-  assert.match(source, /\[\[ \$confirm != "\$value" \]\]/, "should compare what came back");
-});
-
-test("an unknown subcommand is refused", () => {
-  const { run } = harness({ value: "0" });
-  for (const args of [[], ["help"], ["--help"], ["-h"], ["SET", "1"], ["Status"], [""]]) {
-    const r = run(args);
-    assert.equal(r.code, 2, `${JSON.stringify(args)} should be a usage error`);
-  }
-});
-
-test("subcommands are case sensitive and take no flags", () => {
-  const { run } = harness({ value: "0" });
-  for (const args of [["--status"], ["status", "--json"], ["set", "--", "1"]]) {
-    assert.equal(
-      run(args, { asRoot: true }).code,
-      2,
-      `${args.map((a) => JSON.stringify(a)).join(" ") || "(no arguments)"} should be refused`
-    );
-  }
-});
-
-test("the helper carries the marker uninstall.sh looks for", () => {
-  // If this drifts, uninstall.sh refuses to delete the file and leaves it in
-  // place. Keeping them tied together is the point.
-  const source = fs.readFileSync(HELPER, "utf8");
-  assert.match(source, /lenovo-power-conservation: installed by/);
-});
-
-test("the privileged files name where they came from", () => {
-  // These two are the only files that land outside the repository (the helper in
-  // /usr/local/libexec, the rules example in /etc/polkit-1/rules.d), so once
-  // installed nothing tells a sysadmin where to find the source, and both have
-  // to say so themselves. install.sh and uninstall.sh run from the repository
-  // and leave nothing behind, so they are not in this list.
-  const repo = "https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation";
-
-  for (const f of [
-    "bin/lenovo-power-conservation",
-    "policy/lenovo-power-conservation.rules.example",
   ]) {
-    const text = fs.readFileSync(path.join(__dirname, "..", f), "utf8");
-    assert.ok(text.includes(repo), `${f} should name ${repo}`);
-  }
-});
-
-test("the helper says how to remove it", () => {
-  // A root-owned file with no recorded uninstall route is the failure mode this
-  // is guarding against, so the removal path has to be in the file too.
-  const source = fs.readFileSync(HELPER, "utf8");
-  assert.match(source, /uninstall\.sh/, "should name uninstall.sh");
-  assert.match(source, /keeps no state/, "should say it is safe to delete");
-});
-
-test("install.sh, uninstall.sh, the helper and Panel.qml agree on the installed path", () => {
-  // If these drift, the panel elevates a path that does not exist or uninstall
-  // deletes the wrong file. Each script composes the full path from a directory
-  // constant, so compare the directory and the basename rather than a literal.
-  const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
-  const dirOf = (source) => {
-    const m = source.match(/^readonly PACKAGED_DIR=(.*)$/m) || source.match(/^PACKAGED_DIR=(.*)$/m);
-    assert.ok(m, "the script should define PACKAGED_DIR");
-    return m[1].replace(/^["']|["']$/g, "");
-  };
-
-  const expectedDir = "/usr/local/libexec/lenovo-power";
-  for (const f of ["install.sh", "uninstall.sh"]) {
-    assert.equal(dirOf(read(f)), expectedDir, `${f} installs somewhere else`);
-    assert.match(read(f), /conservation"/, `${f} should name the helper file`);
-  }
-
-  // The helper spells its own path out in full.
-  assert.match(
-    read("bin/lenovo-power-conservation"),
-    /^readonly PACKAGED_PATH=\/usr\/local\/libexec\/lenovo-power\/conservation$/m
-  );
-
-  // The panel keeps the same path as a QML string, for its probe and its pkexec
-  // call. If it drifts, the probe reports "not-installed" forever and nothing
-  // else notices, so compare the full path, not just the directory.
-  const panelHelper = read("Panel.qml").match(/conservationHelper:\s*"([^"]+)"/);
-  assert.ok(panelHelper, "Panel.qml should name the helper path");
-  assert.equal(
-    panelHelper[1],
-    `${expectedDir}/conservation`,
-    "Panel.qml probes a path install.sh does not write"
-  );
-});
-
-test("the rules example grants YES for our own command line only", () => {
-  // A YES that is not scoped by the three guards below would hand out far more
-  // than one toggle.
-  const rules = fs.readFileSync(
-    path.join(__dirname, "..", "policy", "lenovo-power-conservation.rules.example"),
-    "utf8"
-  );
-  assert.match(rules, /polkit\.Result\.YES/, "the optional rule grants without authentication by design");
-  assert.match(rules, /conservation set \[01\]/, "must match only the exact write");
-  assert.match(rules, /isInGroup\("wheel"\)/);
-  assert.match(rules, /subject\.local/);
-});
-
-test("the shipped rules example is not installed by install.sh", () => {
-  const install = fs.readFileSync(path.join(__dirname, "..", "install.sh"), "utf8");
-  assert.ok(
-    !/rules\.d|rules\.example/.test(install),
-    "install.sh must not copy the rules file into /etc without being asked"
-  );
-});
-
-test("install.sh points at the polkit option after installing", () => {
-  // The last thing install.sh prints is aimed at someone who has just been
-  // asked for their password by the panel, which is the moment they are most
-  // likely to want to know a polkit rule exists. Keep the pointer, and keep it
-  // aimed at a heading that exists.
-  const install = fs.readFileSync(path.join(__dirname, "..", "install.sh"), "utf8");
-  assert.match(install, /polkit rule can be created/, "should mention the polkit option");
-  assert.match(install, /#skipping-the-authentication/, "should link to the skipping section");
-
-  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
-  assert.ok(
-    /^#{1,6}\s+Skipping the authentication\s*$/m.test(readme),
-    "README should have a 'Skipping the authentication' heading for that link to land on"
-  );
-});
-
-test("uninstall.sh offers the polkit rule instead of taking it", () => {
-  // The rule is opt-in, so it is as likely to be something the user wrote as a
-  // copy of ours. Ask, and verify identity before a root-owned rm - the same
-  // bargain install.sh makes about the helper.
-  const uninstall = fs.readFileSync(path.join(__dirname, "..", "uninstall.sh"), "utf8");
-  assert.match(uninstall, /read -r reply/, "should prompt");
-  assert.match(uninstall, /RULES_MARKER/, "should check the file is ours before removing it");
-  assert.match(uninstall, /\[y\/N\]/, "should default to leaving it alone");
-
-  const marker = uninstall.match(/^readonly RULES_MARKER='(.+)'$/m);
-  assert.ok(marker, "RULES_MARKER should be declared");
-  const example = fs.readFileSync(
-    path.join(__dirname, "..", "policy", "lenovo-power-conservation.rules.example"),
-    "utf8"
-  );
-  assert.ok(example.includes(marker[1]), "the marker must actually appear in the shipped example");
-});
-
-test("uninstall.sh does not hang when there is no terminal", () => {
-  // sudo from a script or a migration has no tty to ask on, and a prompt with
-  // nobody to answer it is worse than no prompt. omarchy-dns checks the same
-  // thing before falling through to pkexec.
-  const uninstall = fs.readFileSync(path.join(__dirname, "..", "uninstall.sh"), "utf8");
-  assert.match(uninstall, /\[\[ -t 0 \]\]/, "should only prompt on a terminal");
-});
-
-test("the README and uninstall.sh agree on the polkit rule path", () => {
-  const uninstall = fs.readFileSync(path.join(__dirname, "..", "uninstall.sh"), "utf8");
-  const declared = uninstall.match(/^readonly RULES_PATH=(\S+)$/m);
-  assert.ok(declared, "RULES_PATH should be declared");
-
-  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
-  assert.ok(
-    readme.includes(declared[1]),
-    `README should name ${declared[1]} so users can find or remove the file themselves`
-  );
-});
-
-test("both README sections say uninstall.sh asks about the polkit rule", () => {
-  // Behaviour and documentation drift apart quietly. Scoped to the two
-  // passages that describe what is on the system, and the scope stops at the
-  // next heading of any level - a coarser one passes on whichever paragraph
-  // happens to keep the phrase.
-  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
-  const passage = (heading) => {
-    const start = readme.search(new RegExp(`^#{1,6} ${heading}`, "m"));
-    assert.ok(start >= 0, `README should have a "${heading}" section`);
-    const rest = readme.slice(start);
-    const nl = rest.indexOf("\n");
-    if (nl < 0) return rest;
-    const end = rest.slice(nl + 1).search(/^#{1,6} /m);
-    return end < 0 ? rest : rest.slice(0, nl + 1 + end);
-  };
-
-  for (const heading of [
-    "Uninstalling / Removing",
-    "What lands on disk, and how to remove it",
-  ]) {
-    const body = passage(heading);
-    assert.match(body, /uninstall\.sh/, `${heading} should mention uninstall.sh`);
-    assert.match(body, /asks?\b/, `${heading} should say uninstall.sh asks about the rule`);
-    assert.match(body, /polkit rule|rules\.d/, `${heading} should name the polkit rule`);
+    assert.equal(h.run(args).code, 2, `${JSON.stringify(args)} should be a usage error`);
   }
 });
