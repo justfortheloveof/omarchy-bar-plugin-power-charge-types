@@ -606,7 +606,11 @@ Panel {
             spacing: Style.spacing.labelGap
             InfoPair {
               label: root.chargeThresholdActive ? "Charge limit" : (root.discharging ? "Time left" : "Time to full")
-              value: root.chargeThresholdActive ? (root.batteryInfo.threshold || "-") : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
+              // ---- lenovo-conservation: start ----
+              value: root.chargeThresholdActive
+                ? Utils.ceilingText(root.batteryInfo.threshold, root.conservationActive)
+                : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
+              // ---- lenovo-conservation: end ----
             }
             InfoPair {
               label: root.chargeThresholdActive ? "Battery state" : (root.discharging ? "Discharging" : "Charging")

@@ -136,6 +136,16 @@ function healthText(raw) {
   return (full / design * 100).toFixed(1) + "%"
 }
 
+// The "Charge limit" row's value. A real upstream threshold wins; else a
+// conservation-capped battery shows the model-typical ceiling; else the
+// not-measurable dash. The tilde is honest: the conservation ceiling is
+// firmware-defined (60-80%), not something we read back.
+function ceilingText(threshold, conservationActive) {
+  if (threshold) return String(threshold)
+  if (conservationActive === true) return "~80%"
+  return "-"
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     statusWord: statusWord,
@@ -147,5 +157,6 @@ if (typeof module !== "undefined") {
     moveFocusRow: moveFocusRow,
     hoverClaimsFocus: hoverClaimsFocus,
     healthText: healthText,
+    ceilingText: ceilingText,
   };
 }

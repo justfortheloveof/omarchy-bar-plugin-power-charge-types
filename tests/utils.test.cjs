@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
-const { statusWord, parseState, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText } = ctx;
+const { statusWord, parseState, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
 
 // Exactly what bin/lenovo-power-conservation prints for `status`.
 const INSTALLED_ON = "1";
@@ -243,4 +243,23 @@ test("healthText is a dash when the design capacity is zero", () => {
 
 test("healthText is a dash for more than two tokens", () => {
   assert.equal(healthText("100\n200\n300"), "—");
+});
+
+// ceilingText: the "Charge limit" row's value. A real upstream threshold wins;
+// a conservation-capped battery shows the model-typical ceiling; else the dash.
+test("ceilingText shows a real upstream threshold, even with conservation on", () => {
+  assert.equal(ceilingText("80%", true), "80%");
+  assert.equal(ceilingText("75-80%", false), "75-80%");
+});
+
+test("ceilingText falls back to the conservation ceiling when no threshold is set", () => {
+  // The tilde is the honest hedge: the conservation ceiling is firmware-defined
+  // (60-80%), not something we read back, so we assert the typical value.
+  assert.equal(ceilingText(undefined, true), "~80%");
+  assert.equal(ceilingText("", true), "~80%");
+});
+
+test("ceilingText is a dash when neither a threshold nor conservation applies", () => {
+  assert.equal(ceilingText(undefined, false), "-");
+  assert.equal(ceilingText("", false), "-");
 });

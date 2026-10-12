@@ -5,3 +5,8 @@
 # .rej files turn up whenever a merge needs resolving.
 *.orig
 *.rej
+/.agents
+/AGENTS.md
+/GLOSSARY.md
+/docs/agents
+/skills-lock.json
