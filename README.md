@@ -15,6 +15,7 @@ Uses the `ideapad_acpi` driver's `conservation_mode` setting, which stops chargi
   - whether it is on, off, or unknown (unknown would happen on unsupported platforms)
 - Provides on/off "Conservation Mode" toggle
 - Notifies on failure
+- Shows the battery's health (remaining capacity vs. design capacity, from the power supply's `energy_full` / `energy_full_design`) in place of the stock battery size row
 
 ## Install
 

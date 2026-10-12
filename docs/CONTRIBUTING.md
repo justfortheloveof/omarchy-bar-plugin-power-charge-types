@@ -6,18 +6,18 @@
 | --- | --- |
 | `Panel.qml` | the forked power panel: installed upstream plus our additions |
 | `Model.js` | upstream, unchanged, and must stay that way |
-| `Conservation.js` | pure logic for panel state and navigation: turning the helper's output into state, and moving the keyboard cursor between rows |
+| `Utils.js` | the panel's shared logic: conservation-mode state, and the battery-health rendering |
 | `manifest.json` | plugin id, `clonedFrom: omarchy.power` |
 | `bin/lenovo-power-conservation` | the only thing that runs as root |
 | `install.sh`, `uninstall.sh` | one-time privileged setup, and its removal; `uninstall.sh` also offers to remove the polkit rule |
 | `policy/lenovo-power-conservation.rules.example` | optional passwordless grant, never installed automatically; copied by hand to `/etc/polkit-1/rules.d/50-lenovo-power-conservation.rules` |
 | `upstream.lock` | pinned merge base and fetch coordinates |
 | `tools/sync-upstream` | the three-way merge against upstream |
-| `tests/` | both suites |
+| `tests/` | `utils.test.cjs` (the shared logic) and `helper.test.cjs` (the helper) |
 
 ## Relationship to upstream
 
-`Panel.qml` and `Model.js` are a copy of `shell/plugins/panels/power/` from [basecamp/omarchy][omarchy]. `Model.js` is unchanged; `Panel.qml` is the installed omarchy's panel plus the conservation section. `manifest.json` is the only other upstream file this fork changes. `Conservation.js`, `bin/`, `policy/` and `tests/` are new.
+`Panel.qml` and `Model.js` are a copy of `shell/plugins/panels/power/` from [basecamp/omarchy][omarchy]. `Model.js` is unchanged; `Panel.qml` is the installed omarchy's panel plus the conservation section. `manifest.json` is the only other upstream file this fork changes. `Utils.js`, `bin/`, `policy/` and `tests/` are new.
 
 `manifest.json` declares `omarchy.clonedFrom: omarchy.power`, which is how Omarchy lets a plugin replace a built-in one. A panel builds its own contents inline; there is no API for another plugin to add a section to one, and `clonedFrom` replaces the original rather than layering on top of it. The alternative to forking is a separate bar widget with its own panel and IPC target, which sits beside the Power panel instead of inside it.
 
@@ -61,7 +61,7 @@ The only edits of lines upstream owns are the keyboard-cursor ones: the key disp
 Two files escape the rule, on purpose:
 
 - `manifest.json` is JSON, which has no comments. Its delta - id, name, description, `clonedFrom` - is visible only in the diff.
-- `Conservation.js` is new, so the whole file is the fork's; the file boundary is the fence.
+- `Utils.js` is new, so the whole file is the fork's; the file boundary is the fence.
 
 **The markers are checked, not merely conventional.** `bin/check` runs two stages over the tracked files: the fences must balance (every start its end, no end unmet), and every line this fork has added to `Panel.qml` against the pinned base must sit inside a fence or carry a tail marker - an unmarked change fails the check. `tools/sync-upstream` additionally refuses to merge over unbalanced fences, the way it already refuses to merge over leftover conflict markers.
 
@@ -183,13 +183,13 @@ Stages skipped: no `omarchy` (off-box), no `qmllint` (not installed), no upstrea
 ## Tests
 
 ```bash
-node --test tests/conservation.test.cjs   # the logic
-node --test tests/helper.test.cjs         # the helper's arguments and writes
+node --test tests/utils.test.cjs   # the logic
+node --test tests/helper.test.cjs  # the helper's arguments and writes
 ```
 
 Neither needs root, a Lenovo, or anything in `/sys`. The helper's privileged path is exercised through `unshare -r`, which maps the caller to uid 0 in a throwaway user namespace, with the sysfs glob rewritten to point at a temporary tree. The host is untouched.
 
-`tests/conservation.test.cjs` covers `Conservation.js`: the words the helper prints, the state mapping, and the value check that gates `pkexec`. `tests/helper.test.cjs` covers `bin/lenovo-power-conservation`: argument validation, exit codes, the write, and the agreement between the helper, `install.sh`, `uninstall.sh` and `Panel.qml` about the path they share.
+`tests/utils.test.cjs` covers `Utils.js`: the words the helper prints, the state mapping, the value check that gates `pkexec`, and the battery-health rendering. `tests/helper.test.cjs` covers `bin/lenovo-power-conservation`: argument validation, exit codes, the write, and the agreement between the helper, `install.sh`, `uninstall.sh` and `Panel.qml` about the path they share.
 
 One gap, on purpose. The branch that reports a write the kernel refused needs a sysfs attribute that rejects a value, which a plain file cannot be, so that test asserts the check is present rather than pretending to exercise it.
 

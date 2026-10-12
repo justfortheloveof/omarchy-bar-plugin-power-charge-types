@@ -25,13 +25,13 @@ for script in bin/lenovo-power-conservation install.sh uninstall.sh tools/sync-u
 done
 bin/check-agent-files "$root"
 python3 -c 'import json; json.load(open("manifest.json"))'
-node --test tests/conservation.test.cjs tests/helper.test.cjs
+node --test tests/utils.test.cjs tests/helper.test.cjs
 
 # ---------------------------------------------------------------------------
 # Fork markers must balance: every `lenovo-conservation: start` its `end`,
 # no `end` unmet. Comment-only, so it runs in CI too.
 # ---------------------------------------------------------------------------
-for f in Panel.qml Model.js Conservation.js; do
+for f in Panel.qml Model.js Utils.js; do
 	awk '
 		/lenovo-conservation: start/ { depth++; next }
 		/lenovo-conservation: end/ {

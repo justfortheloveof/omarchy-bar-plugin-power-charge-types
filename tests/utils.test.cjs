@@ -1,12 +1,12 @@
-// Unit tests for Conservation.js - run with: node --test tests/conservation.test.cjs
+// Unit tests for Utils.js - run with: node --test tests/utils.test.cjs
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
 const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(`${__dirname}/../Conservation.js`, "utf8"), ctx);
-const { statusWord, parseState, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus } = ctx;
+vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
+const { statusWord, parseState, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText } = ctx;
 
 // Exactly what bin/lenovo-power-conservation prints for `status`.
 const INSTALLED_ON = "1";
@@ -204,4 +204,43 @@ test("moveFocusRow ignores a zero delta", () => {
 test("hoverClaimsFocus follows whether the row could be activated", () => {
   assert.equal(hoverClaimsFocus(true), true);
   assert.equal(hoverClaimsFocus(false), false);
+});
+
+// healthText: the text for the Battery health row, from the combined output
+// of `cat .../energy_full .../energy_full_design`. String literals only - no
+// /sys access, so it runs on any machine.
+test("healthText renders remaining capacity as a one-decimal percentage", () => {
+  assert.equal(healthText("44650000\n56000000\n"), "79.7%");
+});
+
+test("healthText handles output without a trailing newline", () => {
+  assert.equal(healthText("10000000\n10000000"), "100.0%");
+});
+
+test("healthText renders full > design as the computed value, not an error", () => {
+  // A battery replaced with a bigger one reports more than its design figure.
+  assert.equal(healthText("60000000\n56000000"), "107.1%");
+});
+
+test("healthText is a dash when one of the two files is missing", () => {
+  assert.equal(healthText("44650000\n"), "—");
+});
+
+test("healthText is a dash when nothing was read", () => {
+  // Both files unreadable: stderr is discarded, stdout is empty.
+  assert.equal(healthText(""), "—");
+  assert.equal(healthText(null), "—");
+  assert.equal(healthText(undefined), "—");
+});
+
+test("healthText is a dash for non-numeric output", () => {
+  assert.equal(healthText("banana\n56000000"), "—");
+});
+
+test("healthText is a dash when the design capacity is zero", () => {
+  assert.equal(healthText("100\n0"), "—");
+});
+
+test("healthText is a dash for more than two tokens", () => {
+  assert.equal(healthText("100\n200\n300"), "—");
 });

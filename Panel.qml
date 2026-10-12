@@ -6,7 +6,7 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 // ---- lenovo-conservation: start ----
-import "Conservation.js" as Conservation
+import "Utils.js" as Utils
 // ---- lenovo-conservation: end ----
 
 Panel {
@@ -39,6 +39,9 @@ Panel {
   // instead of the profiles. A boolean rather than a shared index, which
   // updateProfiles re-clamps on every refresh.
   property bool conservationFocused: false
+  // The Battery health row's value, from energy_full / energy_full_design.
+  // Starts pessimistic: a read that never ran shows the dash, not a stale number.
+  property string batteryHealthText: "—"
   // Only a toggle whose current value we actually read may be flipped.
   readonly property bool conservationReady:
     conservationInstalled && conservationSupported && conservationKnown && !conservationBusy
@@ -98,7 +101,7 @@ Panel {
   // conservationKnown false, which keeps the row disabled rather than showing
   // "off" for a state nobody read.
   function ingestConservationStatus(raw) {
-    var state = Conservation.describe(raw)
+    var state = Utils.describe(raw)
     root.conservationInstalled = state.installed
     root.conservationSupported = state.supported
     root.conservationKnown = state.supported && state.active !== null
@@ -115,8 +118,8 @@ Panel {
   function requestConservationToggle() {
     if (!root.conservationReady) return ""
 
-    var value = Conservation.nextValue(root.conservationActive)
-    if (!Conservation.isAcceptedValue(value)) return ""
+    var value = Utils.nextValue(root.conservationActive)
+    if (!Utils.isAcceptedValue(value)) return ""
 
     root.conservationBusy = true
     conservationAction.command = ["pkexec", root.conservationHelper, "set", value]
@@ -127,7 +130,7 @@ Panel {
   // Vertical navigation: walk between the profile row and ours, skipping ours
   // when it is not ready. dx never reaches here, so left/right stay on profiles.
   function moveFocusRow(delta) {
-    conservationFocused = Conservation.moveFocusRow(
+    conservationFocused = Utils.moveFocusRow(
       conservationFocused,
       delta,
       root.conservationReady,
@@ -226,6 +229,15 @@ Panel {
     // ---- lenovo-conservation: end ----
   }
 
+  // ---- lenovo-conservation: start ----
+  // The health read is one-shot per panel session: the value barely moves,
+  // so a transient empty payload renders as the dash it already is, and no
+  // keep-last-known-good guard is needed.
+  function updateHealth(raw) {
+    batteryHealthText = Utils.healthText(raw)
+  }
+  // ---- lenovo-conservation: end ----
+
   function updateKeyValue(raw, targetName) {
     var next = Model.parseKeyValue(raw)
     // Keep last known good data if a refresh briefly returns nothing — happens
@@ -295,6 +307,8 @@ Panel {
       // Reset with cursorActive: a row focused in the last session would
       // otherwise light on the first key press after reopening.
       conservationFocused = false
+      // One-shot: read the health files once per panel session.
+      if (!healthProc.running) healthProc.running = true
       // ---- lenovo-conservation: end ----
     }
   }
@@ -323,6 +337,17 @@ Panel {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "system") }
   }
 
+  // ---- lenovo-conservation: start ----
+  // Reading needs no privilege. `2>/dev/null` keeps a "No such file" from a
+  // machine without BAT0 out of the shell log on every read; the string is
+  // fully fixed, so nothing caller-controlled reaches the shell.
+  Process {
+    id: healthProc
+    command: ["sh", "-c", "cat /sys/class/power_supply/BAT0/energy_full /sys/class/power_supply/BAT0/energy_full_design 2>/dev/null"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateHealth(text) }
+  }
+  // ---- lenovo-conservation: end ----
+
   Process {
     id: actionProc
     onExited: root.refresh()
@@ -342,7 +367,7 @@ Panel {
     id: conservationAction
     stdout: SplitParser { onRead: function(line) { root.ingestConservationStatus(line) } }
     // Collected rather than announced on sight: whether to speak at all depends
-    // on the exit code, and Conservation.shouldNotify decides that.
+    // on the exit code, and Utils.shouldNotify decides that.
     stderr: SplitParser {
       onRead: function(line) { root.conservationErrors.push(String(line)) }
     }
@@ -350,7 +375,7 @@ Panel {
       var why = root.conservationErrors
       root.conservationErrors = []
 
-      if (Conservation.shouldNotify(exitCode, why)) {
+      if (Utils.shouldNotify(exitCode, why)) {
         Quickshell.execDetached([
           "omarchy-notification-send",
           "-g", "󰂅",
@@ -572,7 +597,7 @@ Panel {
           Column {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
-            InfoPair { label: "Battery size"; value: root.batteryInfo.size || "" }
+            InfoPair { label: "Battery health"; value: root.batteryHealthText } // lenovo-conservation
             InfoPair { label: "Charge cycles"; value: root.batteryInfo.cycles || "—" }
           }
 
@@ -659,7 +684,7 @@ Panel {
             // hasCursor || mouse.containsMouse, same as Button's.
             hasCursor: root.cursorActive && root.conservationFocused
             onHovered: function(h) {
-              if (!h || !Conservation.hoverClaimsFocus(root.conservationReady)) return
+              if (!h || !Utils.hoverClaimsFocus(root.conservationReady)) return
               root.cursorActive = true
               root.conservationFocused = true
             }

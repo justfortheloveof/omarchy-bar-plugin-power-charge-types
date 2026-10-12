@@ -1,9 +1,10 @@
-// Lenovo battery conservation mode.
+// The panel's shared logic: conservation-mode state, and the battery-health
+// rendering.
 //
-// The kernel exposes this as ideapad_acpi's conservation_mode attribute: a
-// root-owned sysfs file holding "1" (stop charging early) or "0". The helper in
-// bin/ is the only thing that touches it, and all it hands back is one word, so
-// everything here is pure and testable on any machine.
+// Conservation mode is the kernel's ideapad_acpi conservation_mode attribute:
+// a root-owned sysfs file holding "1" (stop charging early) or "0". The
+// helper in bin/ is the only thing that touches it, and all it hands back is
+// one word. Everything here is pure and testable on any machine.
 
 // What `status` prints. "not-installed" comes from the panel's own wrapper;
 // the rest come from the helper.
@@ -118,6 +119,23 @@ function hoverClaimsFocus(available) {
   return available === true
 }
 
+// The text for the Battery health row, from the combined output of
+// `cat .../energy_full .../energy_full_design`: two lines of µWh
+// integers, in that order. Only the ratio is used, so units never
+// matter. Anything unreadable is the dash, matching the "Charge
+// cycles" fallback: the row says "not measurable", not "0%".
+function healthText(raw) {
+  // The trailing newline in `cat` output splits to an empty token; drop
+  // empties before counting, or a healthy battery would read as "—".
+  var tokens = String(raw || "").split(/\s+/).filter(function (t) { return t })
+  var full = Number(tokens[0])
+  var design = Number(tokens[1])
+  if (tokens.length !== 2) return "—"
+  if (!isFinite(full) || !isFinite(design)) return "—"
+  if (full < 0 || design <= 0) return "—"
+  return (full / design * 100).toFixed(1) + "%"
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     statusWord: statusWord,
@@ -128,5 +146,6 @@ if (typeof module !== "undefined") {
     shouldNotify: shouldNotify,
     moveFocusRow: moveFocusRow,
     hoverClaimsFocus: hoverClaimsFocus,
+    healthText: healthText,
   };
 }
