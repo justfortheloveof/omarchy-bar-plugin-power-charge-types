@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.justfortheloveof.power-lenovo-battery-conservation",
-  "name": "Power - with Lenovo Battery Conservation Toggle",
-  "version": "0.1.0",
+  "id": "io.github.justfortheloveof.power-charge-types",
+  "name": "Power - with Charge Types",
+  "version": "0.2.0",
   "author": "justfortheloveof",
   "license": "MIT",
-  "description": "The Omarchy power panel, plus Lenovo battery conservation mode toggle.",
+  "description": "The Omarchy power panel, plus a charge-type selector and battery-health readout.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +13,8 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Power - with Lenovo Battery Conservation Toggle",
-    "description": "Battery, power profile and system stats, plus Lenovo battery conservation mode toggle.",
+    "displayName": "Power - with Charge Types",
+    "description": "Battery, power profile and system stats, plus a charge-type selector and battery-health readout.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
