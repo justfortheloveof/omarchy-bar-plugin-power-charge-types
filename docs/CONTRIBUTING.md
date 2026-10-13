@@ -56,7 +56,7 @@ The merge is clean whenever the two sides do not share a line, so:
 
 Do not reformat `Model.js` unless a feature needs it. Upstream tests it in `test/shell.d/power-test.sh`, so churn there makes future merges noisy.
 
-The only edits of lines upstream owns are the keyboard-cursor ones: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, and the profile `Button`'s `hasCursor` and `onHovered`. A row that is not ours must not light, and the cursor must walk *between* rows, which cannot be expressed from outside the components that draw it. Each such line carries a tail marker, and so must any you add: the coverage check below fails on a changed line that has neither.
+The only edits of lines upstream owns are the keyboard-cursor ones: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, the key catcher's `blocked` line (suspended while the dropdown's popup owns the keys), and the profile `Button`'s `hasCursor` and `onHovered`. A row that is not ours must not light, and the cursor must walk *between* rows, which cannot be expressed from outside the components that draw it. Two more lines are edited for non-cursor reasons: `refresh()`'s closing brace (it carries the tail marker because our probe hook is fenced inside the function) and the battery `InfoPair` line, which the health row replaces. Each such line carries a tail marker, and so must any you add: the coverage check below fails on a changed line that has neither.
 
 Two files escape the rule, on purpose:
 
@@ -195,27 +195,28 @@ One gap, on purpose. The branch that reports a write the kernel refused needs a 
 
 ## Keyboard navigation
 
-The panel's keyboard cursor is upstream's own: `cursorActive` plus a flat `profileIndex` into the profile buttons. We extend that rather than replace it, so ours is one more boolean in the same idiom, `conservationFocused`, meaning "the cursor is on our row instead of the profiles".
+The panel's keyboard cursor is upstream's own: `cursorActive` plus a flat `profileIndex` into the profile buttons. We extend that rather than replace it. The rows below the stats are the charge row and the profile row, in display order, and the cursor over them is `cursorRow: -1 | 0 | 1` - an index into that display order, where `-1` means "not armed" - instead of the boolean a single row would need, because the walk now moves *between* the two rows.
 
 - `h`/`l` and the left/right arrows move between profiles, unchanged.
-- `j`/`k` and up/down walk between the two rows, lighting exactly one row at a time.
-- Return or Space activates whichever row the cursor is on.
-- Hovering a row moves the cursor there, so mouse and keyboard agree and only one row is lit.
+- `j`/`k` and up/down walk between the two rows (`Utils.moveRowFocus`), lighting exactly one row at a time, clamped at both ends, no wrap. From unarmed, the first move press arms and lands on the first available row down, or the last up.
+- Return or Space activates whichever row the cursor is on: on the charge row it opens the dropdown, on the profile row it activates the selected profile.
+- Hovering a row moves the cursor there, so mouse and keyboard agree and only one row is lit. The charge row only claims the cursor when it is ready.
+- While the dropdown's popup is open the panel's key catcher suspends (`blocked`), so `j`/`k`, Return and Esc drive the popup instead of the panel; on close the catcher resumes and the cursor is back on the charge row.
 
 Two deliberate differences from a stock panel:
 
 - Upstream sends `j`/`k` into the profile list. Here they change rows, and only `h`/`l` move between profiles.
-- Our row is skipped entirely while it cannot act - before `install.sh` has run, or the mode has not been read - so the cursor cannot park on a toggle that would refuse to flip. The cost is that the row's "run `sudo ./install.sh`" message cannot be read with the keyboard alone.
+- Our row is skipped entirely while it cannot act - before `install.sh` has run, or the type has not been read - so the cursor cannot park on a dropdown that would refuse to act. The cost is that the row's "run `sudo ./install.sh`" caption cannot be read with the keyboard alone.
 
-The row's title is bold because the shared `Toggle` component hardcodes `font.bold` on its label and offers no property to turn it off. Matching regular weight, as the network panel's list rows use, would mean replacing a shared component with a local one - and losing its tab focus and Return/Enter/Space handling with it. The title size is set to `Style.font.body` so at least the size matches the rows beside it.
+The row's label is bold because the shared `Dropdown` component hardcodes `font.bold` on its label and offers no property to turn it off. Matching regular weight, as the network panel's list rows use, would mean replacing a shared component with a local one - and losing its tab focus and popup handling with it.
 
-The cursor stays where it was last put. Hovering a row leaves it lit after the mouse moves away, because that is upstream's behaviour: `cursorActive` is only ever cleared when the battery appears, so a profile button stays lit the same way. We match it rather than giving our row a second hover model.
+On (re)opening the panel the cursor resets to unarmed along with `cursorActive`, so a row focused in the last session does not light on the first key press; the first move press re-arms it. Within a session the cursor stays where it was last put, and hovering a row leaves it lit after the mouse moves away, because that is upstream's behaviour: `cursorActive` is only ever cleared when the battery appears, so a profile button stays lit the same way. We match it rather than giving our row a second hover model.
 
-The keyboard cursor is the one place where adding a feature meant changing upstream's code rather than only adding to it: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, and the profile `Button`'s `hasCursor` and `onHovered` - a row that is not ours must not light, and hovering it must not steal the cursor. The handlers now call one function of ours, and upstream's `selectProfileByDelta`, `activateSelectedProfile` and `setProfile` are untouched behind them. The rules in [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) apply to those from now on.
+The keyboard cursor is the one place where adding a feature meant changing upstream's code rather than only adding to it: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, the key catcher's `blocked` line, and the profile `Button`'s `hasCursor` and `onHovered` - a row that is not ours must not light, and hovering it must not steal the cursor. The handlers now call one function of ours, and upstream's `selectProfileByDelta`, `activateSelectedProfile` and `setProfile` are untouched behind them. The rules in [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) apply to those from now on.
 
 ## Security
 
-The reasoning behind the root-owned helper lives in the README's *How the privileged part works* section. The short version: the installed copy is the only thing ever elevated, it takes no path from its caller, and it writes only `0` or `1`.
+The reasoning behind the root-owned helper lives in the README's *How the privileged part works* section. The short version: the installed copy is the only thing ever elevated, it takes no path from its caller, and it writes only values it just read from the attribute's own list.
 
 If you touch `bin/charge-types`, `install.sh`, `uninstall.sh` or `policy/`, read that section first. Two invariants the tests currently only partly cover, and which you should not weaken:
 
