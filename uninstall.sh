@@ -101,7 +101,10 @@ if [[ -e $LEGACY_HELPER_PATH ]]; then
 		rm -f "$LEGACY_HELPER_PATH"
 		printf 'Removed the legacy 0.1.0 helper %s\n' "$LEGACY_HELPER_PATH"
 	fi
-	rmdir "$LEGACY_HELPER_DIR" 2>/dev/null && printf 'Removed the legacy 0.1.0 directory %s\n' "$LEGACY_HELPER_DIR"
+	# rmdir fails on a non-empty directory, and set -e would abort the whole
+	# uninstall over it; a directory holding anything besides the helper is
+	# not ours to take, so a failed rmdir is a quiet no-op.
+	rmdir "$LEGACY_HELPER_DIR" 2>/dev/null && printf 'Removed the legacy 0.1.0 directory %s\n' "$LEGACY_HELPER_DIR" || true
 fi
 
 if [[ -e $LEGACY_RULES_PATH ]] && grep -qF "$LEGACY_RULES_MARKER" "$LEGACY_RULES_PATH"; then
