@@ -305,7 +305,7 @@ test("ceilingText shows a real upstream threshold, even with Long Life active", 
 });
 
 test("ceilingText falls back to the Long Life ceiling when no threshold is set", () => {
-  // The tilde is the honest hedge: the conservation ceiling is firmware-defined
+  // The tilde is the honest hedge: the Long Life ceiling is firmware-defined
   // (60-80%), not something we read back, so we assert the typical value.
   assert.equal(ceilingText(undefined, "Long_Life"), "~80%");
   assert.equal(ceilingText("", "Long_Life"), "~80%");

@@ -171,7 +171,7 @@ function moveRowFocus(row, delta, availableRows) {
   return current
 }
 
-// Whether the conservation row should claim the cursor when hovered. Only a row
+// Whether the charge row should claim the cursor when hovered. Only a row
 // that could also be activated by keyboard takes the cursor, or hovering an
 // unusable row would strand it there with nothing for Return to do.
 function hoverClaimsFocus(available) {
@@ -198,7 +198,7 @@ function healthText(raw) {
 // The "Charge limit" row's value. A real upstream threshold wins: the user
 // set a limit, it is theirs, whatever the charge type is doing. Else the
 // Long Life charge type shows the model-typical ceiling; else the
-// not-measurable dash. The tilde is honest: the conservation ceiling is
+// not-measurable dash. The tilde is honest: the Long Life ceiling is
 // firmware-defined (60-80%), not something we read back.
 function ceilingText(threshold, activeType) {
   if (threshold) return String(threshold)
