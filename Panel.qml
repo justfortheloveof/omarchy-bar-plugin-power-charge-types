@@ -378,7 +378,19 @@ Panel {
   Process {
     id: chargeTypesProbe
     command: ["sh", "-c", "if [ -x \"$0\" ]; then exec \"$0\" list; else echo not-installed; fi", root.chargeTypesHelper]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.ingestChargeTypesStatus(text) }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.ingestChargeTypesStatus(text)
+        // The kit's selectCurrent() assigns the dropdown's value, tearing the
+        // binding it made to chargeTypesActiveType: from the first selection
+        // on, a re-probed change (a dismissed write, a switch outside the
+        // panel) no longer moves the displayed value. Re-sync it on every
+        // probe so the display tracks the attribute again; the initial binding
+        // still covers probes before any selection.
+        root.chargeTypesDropdown.value = root.chargeTypesActiveType
+      }
+    }
   }
 
   Process {
