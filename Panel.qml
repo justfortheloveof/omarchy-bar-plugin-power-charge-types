@@ -395,7 +395,13 @@ Panel {
 
   Process {
     id: chargeTypesAction
-    stdout: SplitParser { onRead: function(line) { root.ingestChargeTypesStatus(line) } }
+    // The helper's stdout is the new active type, one bare word - not its
+    // `list` output, so it must not go through the list parser: a word with
+    // no bracket parses as known:false, and on every write the caption would
+    // flicker to the unrecognised-value message and the dropdown disable
+    // until the re-probe lands. Capture it and throw it away; the re-probe
+    // is the source of truth.
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: {} }
     // Collected rather than announced on sight: whether to speak at all depends
     // on the exit code, and Utils.shouldNotify decides that.
     stderr: SplitParser {
