@@ -123,6 +123,20 @@ function normalizeChargeType(value) {
 // unusable row out of it. Moving past either end clamps onto the last available
 // row in that direction, because wrapping would land on the wrong control.
 // An unarmed cursor arms on the first available row in the move direction.
+
+// The first available row at, or in `step`'s direction from, `from` - or -1
+// when the walk runs off the end of the row list without finding one. The
+// one shape behind every walk moveRowFocus performs: arm, step, and clamp all
+// differ only in where they start and which way they go.
+function firstAvailable(rows, from, step) {
+  var i = Number(from)
+  var last = rows.length - 1
+  for (; step > 0 ? i <= last : i >= 0; i += step) {
+    if (rows[i] === true) return i
+  }
+  return -1
+}
+
 function moveRowFocus(row, delta, availableRows) {
   var rows = Array.isArray(availableRows) ? availableRows : []
   var current = Number(row)
@@ -131,27 +145,18 @@ function moveRowFocus(row, delta, availableRows) {
   // Unarmed: down lands on the first available row, up on the last; with
   // none available the cursor has nowhere to arm, so it stays at -1.
   if (current < 0) {
-    if (delta > 0) {
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i] === true) return i
-      }
-    } else if (delta < 0) {
-      for (var j = rows.length - 1; j >= 0; j--) {
-        if (rows[j] === true) return j
-      }
-    }
+    if (delta > 0) return firstAvailable(rows, 0, 1)
+    if (delta < 0) return firstAvailable(rows, rows.length - 1, -1)
     return -1
   }
 
   // Armed: walk in the move direction to the next available row.
   if (delta > 0) {
-    for (var k = current + 1; k < rows.length; k++) {
-      if (rows[k] === true) return k
-    }
+    var next = firstAvailable(rows, current + 1, 1)
+    if (next !== -1) return next
   } else if (delta < 0) {
-    for (var l = current - 1; l >= 0; l--) {
-      if (rows[l] === true) return l
-    }
+    var prev = firstAvailable(rows, current - 1, -1)
+    if (prev !== -1) return prev
   } else {
     return current
   }
@@ -159,13 +164,11 @@ function moveRowFocus(row, delta, availableRows) {
   // Nothing in that direction: clamp onto the end available row, staying put
   // when the walk has nowhere left to go.
   if (delta > 0) {
-    for (var m = rows.length - 1; m >= 0; m--) {
-      if (rows[m] === true) return m
-    }
-  } else if (delta < 0) {
-    for (var n = 0; n < rows.length; n++) {
-      if (rows[n] === true) return n
-    }
+    var end = firstAvailable(rows, rows.length - 1, -1)
+    if (end !== -1) return end
+  } else {
+    var start = firstAvailable(rows, 0, 1)
+    if (start !== -1) return start
   }
 
   return current
