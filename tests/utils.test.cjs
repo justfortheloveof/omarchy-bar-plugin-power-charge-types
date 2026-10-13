@@ -6,43 +6,90 @@ const vm = require("node:vm");
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
-const { statusWord, parseState, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
+const { parseChargeTypes, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
 
-// Exactly what bin/lenovo-power-conservation prints for `status`.
-const INSTALLED_ON = "1";
-const INSTALLED_OFF = "0";
-const INSTALLED_UNKNOWN = "unknown";
+// Exactly what bin/lenovo-power-conservation prints for `list`, and the word
+// the panel's own wrapper supplies when the helper is missing.
+const LIST_OK = "Fast\nStandard\n[Long_Life]\n";
 const NO_SUCH_MACHINE = "unsupported";
 const NOT_INSTALLED = "not-installed";
 
-test("statusWord takes the first non-blank line", () => {
-  assert.equal(statusWord("1\n"), "1");
-  assert.equal(statusWord("  0  \n"), "0");
-  assert.equal(statusWord("\n\n1\n"), "1");
-  assert.equal(statusWord("unknown"), "unknown");
+// The parsed object comes back from the vm realm, whose Array prototype is
+// not this realm's, so a strict deep-equal rejects it on prototype alone.
+// Re-box the fields here, in this realm, before comparing.
+const asPlain = (p) => ({ installed: p.installed, supported: p.supported, known: p.known, activeType: p.activeType, options: [...p.options] });
+
+test("parseChargeTypes reads the helper's list output", () => {
+  // The working case: every entry becomes an option, brackets stripped, and
+  // the bracketed one is the active type.
+  assert.deepEqual(
+    asPlain(parseChargeTypes(LIST_OK)),
+    { installed: true, supported: true, known: true, activeType: "Long_Life", options: ["Fast", "Standard", "Long_Life"] }
+  );
 });
 
-test("statusWord reports nothing for empty output", () => {
-  // A helper that printed nothing, or was never run.
-  assert.equal(statusWord(""), "");
-  assert.equal(statusWord("\n"), "");
-  assert.equal(statusWord("   \n\n"), "");
-  assert.equal(statusWord(null), "");
-  assert.equal(statusWord(undefined), "");
+test("parseChargeTypes tolerates missing brackets on a line and extra whitespace", () => {
+  assert.deepEqual(
+    asPlain(parseChargeTypes("\n  Fast\nStandard  [Long_Life]  \n\n")),
+    { installed: true, supported: true, known: true, activeType: "Long_Life", options: ["Fast", "Standard", "Long_Life"] }
+  );
 });
 
-test("parseState maps the two values the mode can hold", () => {
-  assert.equal(parseState(INSTALLED_ON), true);
-  assert.equal(parseState(INSTALLED_OFF), false);
+test("parseChargeTypes reads a one-line list", () => {
+  // The helper prints one type per line; a space-joined list is the raw
+  // attribute form, and reading it the same way keeps the parse forgiving.
+  assert.deepEqual(
+    asPlain(parseChargeTypes("Fast Standard [Long_Life]")),
+    { installed: true, supported: true, known: true, activeType: "Long_Life", options: ["Fast", "Standard", "Long_Life"] }
+  );
 });
 
-test("parseState reports unknown rather than guessing", () => {
-  // Unknown must not collapse to false: that would invite a toggle derived
-  // from a value nobody actually read.
-  for (const word of [INSTALLED_UNKNOWN, NO_SUCH_MACHINE, NOT_INSTALLED, "", "2", "true", "01"]) {
-    assert.equal(parseState(word), null, `"${word}" must not read as off`);
+test("parseChargeTypes reports a list with no active entry as known:false", () => {
+  // A battery that lists types but names none active: the options are still
+  // worth showing, but the state is unreadable, and unreadable must not
+  // collapse to a guess.
+  assert.deepEqual(
+    asPlain(parseChargeTypes("Fast\nStandard\n")),
+    { installed: true, supported: true, known: false, activeType: null, options: ["Fast", "Standard"] }
+  );
+});
+
+test("parseChargeTypes separates a machine without the attribute from an uninstalled helper", () => {
+  // Both leave the row unusable, but only one is worth telling the user to fix.
+  const unsupported = asPlain(parseChargeTypes(NO_SUCH_MACHINE + "\n"));
+  assert.equal(unsupported.installed, true, "the helper ran, so it is installed");
+  assert.equal(unsupported.supported, false);
+  assert.equal(unsupported.known, false);
+  assert.equal(unsupported.activeType, null);
+  assert.deepEqual(unsupported.options, []);
+
+  const missing = asPlain(parseChargeTypes(NOT_INSTALLED + "\n"));
+  assert.equal(missing.installed, false);
+  assert.equal(missing.supported, false);
+  assert.equal(missing.known, false);
+  assert.equal(missing.activeType, null);
+  assert.deepEqual(missing.options, []);
+});
+
+test("parseChargeTypes reports an unparseable read as known:false", () => {
+  const parsed = asPlain(parseChargeTypes("unknown\n"));
+  assert.equal(parsed.installed, true);
+  assert.equal(parsed.supported, true, "the attribute is there");
+  assert.equal(parsed.known, false, "but its value means nothing to us");
+  assert.equal(parsed.activeType, null);
+  assert.deepEqual(parsed.options, []);
+});
+
+test("parseChargeTypes treats silence as not installed", () => {
+  // The helper failed to run at all. Nothing is claimed about the hardware.
+  for (const raw of ["", "\n", "   \n\n", null, undefined]) {
+    const parsed = asPlain(parseChargeTypes(raw));
+    assert.equal(parsed.installed, false, JSON.stringify(raw));
+    assert.equal(parsed.supported, false);
+    assert.equal(parsed.known, false);
+    assert.equal(parsed.activeType, null);
+    assert.deepEqual(parsed.options, []);
   }
-  assert.equal(parseState(null), null);
 });
 
 test("nextValue flips a known state", () => {
@@ -55,12 +102,6 @@ test("nextValue refuses an unknown state", () => {
   assert.equal(nextValue(undefined), null);
   assert.equal(nextValue("1"), null, "strings are not booleans here");
   assert.equal(nextValue(0), null);
-});
-
-test("nextValue round-trips through parseState", () => {
-  for (const word of [INSTALLED_ON, INSTALLED_OFF]) {
-    assert.equal(parseState(nextValue(parseState(word))), !parseState(word));
-  }
 });
 
 test("isAcceptedValue allows only the two exact strings", () => {
@@ -116,35 +157,24 @@ test("shouldNotify keeps the real explanation in a noisy stream", () => {
   assert.equal(shouldNotify(1, ["", "conservation: no attribute found", ""]), true);
 });
 
-test("describe reports a working machine with the mode on or off", () => {
-  assert.deepEqual({ ...describe(INSTALLED_ON) }, { installed: true, supported: true, active: true });
-  assert.deepEqual({ ...describe(INSTALLED_OFF) }, { installed: true, supported: true, active: false });
-  assert.deepEqual({ ...describe("1\n") }, { installed: true, supported: true, active: true });
+test("describe is the parsed list, for the panel's flags", () => {
+  // The panel derives its ready/known/active flags from this, so it must
+  // agree with parseChargeTypes on every input class.
+  for (const raw of [LIST_OK, NO_SUCH_MACHINE + "\n", "unknown\n", NOT_INSTALLED + "\n", ""]) {
+    assert.deepEqual(asPlain(describe(raw)), asPlain(parseChargeTypes(raw)), `describe(${JSON.stringify(raw)})`);
+  }
 });
 
-test("describe separates a machine without the attribute from an uninstalled helper", () => {
-  // Both leave the row unusable, but only one is worth telling the user to fix.
-  const unsupported = describe(NO_SUCH_MACHINE);
-  assert.equal(unsupported.installed, true, "the helper ran, so it is installed");
-  assert.equal(unsupported.supported, false);
-  assert.equal(unsupported.active, null);
-
-  const missing = describe(NOT_INSTALLED);
-  assert.equal(missing.installed, false);
-  assert.equal(missing.supported, false);
-  assert.equal(missing.active, null);
-});
-
-test("describe reports present-but-unreadable separately from absent", () => {
-  const unknown = describe(INSTALLED_UNKNOWN);
-  assert.equal(unknown.installed, true);
-  assert.equal(unknown.supported, true, "the attribute is there");
-  assert.equal(unknown.active, null, "but its value means nothing to us");
+test("describe reports a working machine with its active type and options", () => {
+  assert.deepEqual(
+    asPlain(describe(LIST_OK)),
+    { installed: true, supported: true, known: true, activeType: "Long_Life", options: ["Fast", "Standard", "Long_Life"] }
+  );
 });
 
 test("describe treats silence as not installed", () => {
   // The helper failed to run at all. Nothing is claimed about the hardware.
-  assert.deepEqual({ ...describe("") }, { installed: false, supported: false, active: null });
+  assert.deepEqual(asPlain(describe("")), { installed: false, supported: false, known: false, activeType: null, options: [] });
 });
 
 test("the helper's status words are the ones this module knows", () => {

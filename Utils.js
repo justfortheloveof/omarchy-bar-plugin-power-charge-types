@@ -1,19 +1,18 @@
-// The panel's shared logic: conservation-mode state, and the battery-health
+// The panel's shared logic: charge-type state, and the battery-health
 // rendering.
 //
-// Conservation mode is the kernel's ideapad_acpi conservation_mode attribute:
-// a root-owned sysfs file holding "1" (stop charging early) or "0". The
-// helper in bin/ is the only thing that touches it, and all it hands back is
-// one word. Everything here is pure and testable on any machine.
+// A charge type is the battery's active charging behaviour, one name from the
+// power-supply class `charge_types` attribute - a root-owned sysfs file the
+// helper in bin/ is the only thing that touches. The helper hands back its
+// `list` output: one type per line, the active one in [brackets], or one of
+// the failure words below. Everything here is pure and testable on any
+// machine.
 
-// What `status` prints. "not-installed" comes from the panel's own wrapper;
-// the rest come from the helper.
+// What `list` prints on failure. "not-installed" comes from the panel's own
+// wrapper, the other two from the helper.
 var NOT_INSTALLED = "not-installed"
 var UNSUPPORTED = "unsupported"
 var UNKNOWN = "unknown"
-
-var VALUE_OFF = "0"
-var VALUE_ON = "1"
 
 // pkexec's exit code when the auth dialog was dismissed. The one non-zero exit
 // that is not a failure.
@@ -35,45 +34,58 @@ function shouldNotify(exitCode, errors) {
   })
 }
 
-// Normalise whatever the helper printed into the single word we reason about.
-function statusWord(raw) {
-  if (raw === null || raw === undefined) return ""
+// Everything the panel needs to know, from the helper's `list` output.
+//
+// The three flags step down a ladder of confidence: `installed` is false for
+// empty output or the wrapper's "not-installed" (a helper that was never
+// installed is a setup step worth mentioning); `supported` is false for
+// "unsupported" (a machine without the attribute is not broken); `known` is
+// false for "unknown", or for a list that names no active entry. Unreadable
+// states give a null `activeType`, deliberately not a guess: acting on a type
+// nobody read would be inventing hardware.
+//
+// `options` is the listed names with brackets stripped, in list order; the
+// bracketed entry is the active type.
+function parseChargeTypes(raw) {
+  var text = String(raw === null || raw === undefined ? "" : raw).trim()
 
-  var lines = String(raw).split("\n")
-  for (var i = 0; i < lines.length; i++) {
-    var word = lines[i].trim()
-    if (word) return word
+  if (text === "" || text === NOT_INSTALLED) {
+    return { installed: false, supported: false, known: false, activeType: null, options: [] }
+  }
+  if (text === UNSUPPORTED) {
+    return { installed: true, supported: false, known: false, activeType: null, options: [] }
+  }
+  if (text === UNKNOWN) {
+    return { installed: true, supported: true, known: false, activeType: null, options: [] }
   }
 
-  return ""
-}
-
-// Read the word for what the mode is doing: true when conservation is on, false
-// when off, null when nothing useful was said - not installed, no such machine,
-// or an unrecognised value. Null is deliberately not false, because treating an
-// unreadable state as "off" would invite a toggle derived from a value nobody read.
-function parseState(word) {
-  var value = String(word || "").trim()
-  if (value === VALUE_ON) return true
-  if (value === VALUE_OFF) return false
-  return null
-}
-
-// Everything the panel needs to know, from one word.
-//
-// `installed` and `supported` are separate: a machine with no Lenovo attribute
-// is not broken, while a helper that was never installed is a setup step worth
-// mentioning.
-function describe(raw) {
-  var word = statusWord(raw)
-  var installed = word !== "" && word !== NOT_INSTALLED
-  var supported = installed && word !== UNSUPPORTED
+  // The list: one type per line from the helper, so split on any whitespace
+  // and drop the empties. The kernel spells the active entry [bracketed];
+  // brackets are stripped for the options, and the bracketed one is the
+  // active type. A list with no bracket at all is unreadable, not "none".
+  var entries = text.split(/\s+/).filter(function (entry) { return entry })
+  var options = []
+  var activeType = null
+  for (var i = 0; i < entries.length; i++) {
+    var name = entries[i].replace(/^\[/, "").replace(/\]$/, "")
+    options.push(name)
+    if (entries[i] !== name) activeType = name
+  }
 
   return {
-    installed: installed,
-    supported: supported,
-    active: supported ? parseState(word) : null,
+    installed: true,
+    supported: true,
+    known: activeType !== null,
+    activeType: activeType,
+    options: options,
   };
+}
+
+// The panel-facing form of the same parse: the flags the row and the ceiling
+// readout reason about, re-derived from parseChargeTypes so the two can never
+// disagree.
+function describe(raw) {
+  return parseChargeTypes(raw)
 }
 
 // The value that turns conservation mode into `active`.
@@ -148,8 +160,7 @@ function ceilingText(threshold, conservationActive) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    statusWord: statusWord,
-    parseState: parseState,
+    parseChargeTypes: parseChargeTypes,
     describe: describe,
     nextValue: nextValue,
     isAcceptedValue: isAcceptedValue,
