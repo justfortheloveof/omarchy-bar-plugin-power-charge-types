@@ -6,18 +6,18 @@
 | --- | --- |
 | `Panel.qml` | the forked power panel: installed upstream plus our additions |
 | `Model.js` | upstream, unchanged, and must stay that way |
-| `Utils.js` | the panel's shared logic: conservation-mode state, and the battery-health rendering |
+| `Utils.js` | the panel's shared logic: charge-type state, and the battery-health rendering |
 | `manifest.json` | plugin id, `clonedFrom: omarchy.power` |
-| `bin/lenovo-power-conservation` | the only thing that runs as root |
+| `bin/charge-types` | the only thing that runs as root |
 | `install.sh`, `uninstall.sh` | one-time privileged setup, and its removal; `uninstall.sh` also offers to remove the polkit rule |
-| `policy/lenovo-power-conservation.rules.example` | optional passwordless grant, never installed automatically; copied by hand to `/etc/polkit-1/rules.d/50-lenovo-power-conservation.rules` |
+| `policy/power-charge-types.rules.example` | optional passwordless grant, never installed automatically; copied by hand to `/etc/polkit-1/rules.d/50-power-charge-types.rules` |
 | `upstream.lock` | pinned merge base and fetch coordinates |
 | `tools/sync-upstream` | the three-way merge against upstream |
-| `tests/` | `utils.test.cjs` (the shared logic) and `helper.test.cjs` (the helper) |
+| `tests/` | `utils.test.cjs` (the shared logic) and `charge-types.test.cjs` (the helper) |
 
 ## Relationship to upstream
 
-`Panel.qml` and `Model.js` are a copy of `shell/plugins/panels/power/` from [basecamp/omarchy][omarchy]. `Model.js` is unchanged; `Panel.qml` is the installed omarchy's panel plus the conservation section. `manifest.json` is the only other upstream file this fork changes. `Utils.js`, `bin/`, `policy/` and `tests/` are new.
+`Panel.qml` and `Model.js` are a copy of `shell/plugins/panels/power/` from [basecamp/omarchy][omarchy]. `Model.js` is unchanged; `Panel.qml` is the installed omarchy's panel plus the charge-type section. `manifest.json` is the only other upstream file this fork changes. `Utils.js`, `bin/`, `policy/` and `tests/` are new.
 
 `manifest.json` declares `omarchy.clonedFrom: omarchy.power`, which is how Omarchy lets a plugin replace a built-in one. A panel builds its own contents inline; there is no API for another plugin to add a section to one, and `clonedFrom` replaces the original rather than layering on top of it. The alternative to forking is a separate bar widget with its own panel and IPC target, which sits beside the Power panel instead of inside it.
 
@@ -32,18 +32,18 @@
 - **An inserted block** is fenced at both ends:
 
   ```qml
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   Process {
-    id: conservationProbe
+    id: chargeTypesProbe
     ...
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
   ```
 
 - **An edited line** - upstream's line, changed - carries a tail marker:
 
   ```qml
-  onActivateRequested: root.activateCursor() // lenovo-conservation
+  onActivateRequested: root.activateCursor() // charge-types
   ```
 
 The fence is demarcation, not protection. `git merge-file` merges by line and treats the markers as ordinary comments, so an upstream change *can* land inside a fence and auto-merge there. The rules below are what keep merges clean; the markers make the result legible.
@@ -69,7 +69,7 @@ Two files escape the rule, on purpose:
 
 ```bash
 sha=$(sed -n 's/^sha=//p' upstream.lock)
-git --git-dir=/tmp/omarchy-power-lenovo-battery-conservation-upstream.git \
+git --git-dir=/tmp/omarchy-power-charge-types-upstream.git \
     show "$sha:shell/plugins/panels/power/Panel.qml" > /tmp/base.qml
 cp /tmp/base.qml /tmp/theirs.qml   # then add an upstream edit to theirs.qml
 git merge-file --diff3 -p Panel.qml /tmp/base.qml /tmp/theirs.qml > /tmp/merged.qml
@@ -155,7 +155,7 @@ Run it before committing. It is everything CI runs, plus the two stages that nee
 | `bin/check-agent-files` | an agent-instruction file anywhere in the tree |
 | `manifest.json` parse | invalid JSON |
 | `node --test`, both suites | any test failure |
-| fork marker balance | a `lenovo-conservation` fence that starts and does not end, or vice versa (runs in CI too) |
+| fork marker balance | a `charge-types` fence that starts and does not end, or vice versa (runs in CI too) |
 | `Model.js` against the pinned upstream sha | any divergence at all (runs in CI too) |
 | fork marker coverage | a `Panel.qml` line this fork changed that is neither fenced nor tail-marked |
 | `qmllint` type resolution | `Panel.qml` referencing shell API this omarchy lacks |
@@ -167,7 +167,7 @@ Five of those deserve a note.
 
 **`Model.js` must stay byte-identical to upstream.** The README calls it unchanged, and every line added to it is a line that can conflict on the next sync. Upstream tests it in `test/shell.d/power-test.sh`, so churn there is noise for them as well. If this stage fails, the fix is almost always to revert `Model.js` and put the code somewhere else.
 
-**The marker stages keep the fork's delta marked.** Balance is comment-only and needs nothing, so it runs in CI too. Coverage diffs `Panel.qml` against the pinned base and requires that every added line sit inside a `lenovo-conservation` fence or carry a tail marker - it is the machine's eye on the rule that every change from upstream is marked, and it is why an unmarked insertion is a failed check rather than a style gripe.
+**The marker stages keep the fork's delta marked.** Balance is comment-only and needs nothing, so it runs in CI too. Coverage diffs `Panel.qml` against the pinned base and requires that every added line sit inside a `charge-types` fence or carry a tail marker - it is the machine's eye on the rule that every change from upstream is marked, and it is why an unmarked insertion is a failed check rather than a style gripe.
 
 **The shell API stages are the important ones.** A cloned first-party panel is not self-contained: it imports types and singleton members the shell provides, so panel code from a newer omarchy can reference API this machine does not have. `ShellIpc` and `Style.duration()` both shipped here first and both failed silently, the widget just never appearing in the bar. Type resolution reuses qmllint's own resolver rather than a hand-rolled list, so nothing new to maintain; `signal-handler-parameters` is excluded because upstream's own file produces it. The `Style` check exists separately because qmllint structurally cannot catch a missing member on a singleton that does resolve.
 
@@ -183,13 +183,13 @@ Stages skipped: no `omarchy` (off-box), no `qmllint` (not installed), no upstrea
 ## Tests
 
 ```bash
-node --test tests/utils.test.cjs   # the logic
-node --test tests/helper.test.cjs  # the helper's arguments and writes
+node --test tests/utils.test.cjs      # the logic
+node --test tests/charge-types.test.cjs  # the helper's arguments and writes
 ```
 
-Neither needs root, a Lenovo, or anything in `/sys`. The helper's privileged path is exercised through `unshare -r`, which maps the caller to uid 0 in a throwaway user namespace, with the sysfs glob rewritten to point at a temporary tree. The host is untouched.
+Neither needs root, a particular battery, or anything in `/sys`. The helper's privileged path is exercised through `unshare -r`, which maps the caller to uid 0 in a throwaway user namespace, with the sysfs glob rewritten to point at a temporary tree. The host is untouched.
 
-`tests/utils.test.cjs` covers `Utils.js`: the words the helper prints, the state mapping, the value check that gates `pkexec`, and the battery-health rendering. `tests/helper.test.cjs` covers `bin/lenovo-power-conservation`: argument validation, exit codes, the write, and the agreement between the helper, `install.sh`, `uninstall.sh` and `Panel.qml` about the path they share.
+`tests/utils.test.cjs` covers `Utils.js`: the words the helper prints, the state mapping, the value check that gates `pkexec`, and the battery-health rendering. `tests/charge-types.test.cjs` covers `bin/charge-types`: argument validation, exit codes, the write, and the agreement between the helper, `install.sh`, `uninstall.sh` and `Panel.qml` about the path they share.
 
 One gap, on purpose. The branch that reports a write the kernel refused needs a sysfs attribute that rejects a value, which a plain file cannot be, so that test asserts the check is present rather than pretending to exercise it.
 
@@ -217,7 +217,7 @@ The keyboard cursor is the one place where adding a feature meant changing upstr
 
 The reasoning behind the root-owned helper lives in the README's *How the privileged part works* section. The short version: the installed copy is the only thing ever elevated, it takes no path from its caller, and it writes only `0` or `1`.
 
-If you touch `bin/lenovo-power-conservation`, `install.sh`, `uninstall.sh` or `policy/`, read that section first. Two invariants the tests currently only partly cover, and which you should not weaken:
+If you touch `bin/charge-types`, `install.sh`, `uninstall.sh` or `policy/`, read that section first. Two invariants the tests currently only partly cover, and which you should not weaken:
 
 - The helper never re-executes itself. `set` requires already being root, so a copy in a user-writable directory cannot elevate itself.
 - `install.sh` must not copy the rules example into `/etc/polkit-1`. Nothing should persist in the system's authorisation policy unless a person asked for it. There is a test asserting exactly that.
