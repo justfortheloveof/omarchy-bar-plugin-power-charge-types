@@ -677,6 +677,12 @@ Panel {
             // The popup's selection is the write request; the pkexec round-trip
             // and the re-probe happen in requestSetChargeType.
             onChanged: function(value) { root.requestSetChargeType(value) }
+            // On close the panel's keyCatcher resumes; per the spec the cursor
+            // is back on the charge row, so restore it: a hover during the
+            // open popup, or a row the cursor sat on, would otherwise strand
+            // it. Unready means no row to land on, so it stays unarmed.
+            onPopupOpenChanged: if (!chargeTypesDropdown.popupOpen)
+              root.cursorRow = root.chargeTypesReady ? 0 : -1
           }
 
           Text {
