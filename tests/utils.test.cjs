@@ -175,8 +175,10 @@ test("describe treats silence as not installed", () => {
   assert.deepEqual(asPlain(describe("")), { installed: false, supported: false, known: false, activeType: null, options: [] });
 });
 
-test("the helper's status words are the ones this module knows", () => {
-  // If bin/lenovo-power-conservation ever changes what it prints, these tests
+test("the helper's failure words are the ones parseChargeTypes knows", () => {
+  // parseChargeTypes recognises the words by their exact spelling. If
+  // bin/lenovo-power-conservation ever changes what `list` prints on failure,
+  // the panel would read a working battery as unparseable, and these tests
   // should be the thing that notices.
   const helper = fs.readFileSync(`${__dirname}/../bin/lenovo-power-conservation`, "utf8");
   assert.match(helper, /printf 'unsupported\\n'/, "prints the unsupported word");
