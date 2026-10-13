@@ -153,8 +153,6 @@ test("the helper's status words are the ones this module knows", () => {
   const helper = fs.readFileSync(`${__dirname}/../bin/lenovo-power-conservation`, "utf8");
   assert.match(helper, /printf 'unsupported\\n'/, "prints the unsupported word");
   assert.match(helper, /printf 'unknown\\n'/, "prints the unknown word");
-  assert.match(helper, /printf '0\\n'/, "prints 0");
-  assert.match(helper, /printf '1\\n'/, "prints 1");
 });
 
 test("the README quotes the row's strings verbatim", () => {

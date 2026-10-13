@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# lenovo-power-conservation: read the battery's charge type.
+# lenovo-power-conservation: read or set the battery's charge type.
 #
 # The file is still named for the old conservation-mode behaviour (the rename
 # to bin/charge-types lands in a later ticket); its behaviour is now the
-# charge_types protocol: `list` and `status` here, `set` with it.
+# charge_types protocol: `list`, `status`, and `set`.
 #
 # Source:   https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation
 # License:  MIT, the same terms as Omarchy itself.
@@ -106,7 +106,9 @@ attr_path() {
 		type=$(cat -- "$path/type" 2>/dev/null) || continue
 		[[ $type == Battery ]] || continue
 
-		[[ -f $path/charge_types ]] || continue
+		# Existence and readability collapse into the read attempt: a missing
+		# or unreadable attribute makes cat fail, and a directory makes it fail
+		# too, so a failed read is the whole of the check.
 		raw=$(cat -- "$path/charge_types" 2>/dev/null) || continue
 
 		saw_readable_battery=1
@@ -161,6 +163,74 @@ cmd_status() {
 	return "$EXIT_OK"
 }
 
+# Print the listed entry of a charge_types read whose name (brackets stripped)
+# equals $2, or fail. The kernel reads out the underscore form, so the listed
+# entry is the canonical form to write.
+list_member() {
+	local raw=$1 want=$2 name
+
+	# Intentional word splitting: the entries of the just-read list.
+	# shellcheck disable=SC2086
+	for name in $raw; do
+		name=${name#\[}
+		name=${name%\]}
+		if [[ $name == "$want" ]]; then
+			printf '%s\n' "$name"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Write the requested charge type. Requires already being root.
+cmd_set() {
+	local value=$1 canonical confirm active
+
+	# Normalize: trim, and map spaces to underscores. The kernel accepts both
+	# "Long Life" and "Long_Life" on write but reads emit the underscore form,
+	# so the dual-variant tolerance is absorbed here, and the helper writes
+	# exactly the form the list spells it.
+	value=${value//[[:space:]]/_}
+	while [[ $value == _* ]]; do value=${value#_}; done
+	while [[ $value == *_ ]]; do value=${value%_}; done
+
+	# Validation against the list just read, before a byte is written. The
+	# whole surface: non-empty, and a member of the battery's own list.
+	attr_path || {
+		if [[ $REJECT_WORD == unknown ]]; then
+			die "the battery's charge_types list has no single active entry; cannot set a charge type" "$EXIT_UNKNOWN"
+		fi
+		die "no usable charge_types attribute found; this battery offers no charge-type control" "$EXIT_UNSUPPORTED"
+	}
+
+	[[ -n $value ]] || die "refusing to write an empty charge type" "$EXIT_USAGE"
+	canonical=$(list_member "$ATTR_RAW" "$value") ||
+		die "refusing to write '$value': not among the types this battery offers" "$EXIT_USAGE"
+
+	if ((EUID != 0)); then
+		die "setting the charge type needs root. Run: pkexec $PACKAGED_PATH set $value" "$EXIT_USAGE"
+	fi
+
+	printf '%s' "$canonical" >"$ATTR_PATH" ||
+		die "failed writing $ATTR_PATH" "$EXIT_ERROR"
+
+	# Read it back rather than reporting success on the strength of a write
+	# that returned zero. The kernel is free to keep the old value active.
+	confirm=$(cat -- "$ATTR_PATH" 2>/dev/null) ||
+		die "wrote $ATTR_PATH but cannot read it back" "$EXIT_ERROR"
+
+	if ! active=$(active_name "$confirm"); then
+		die "wrote '$canonical' to $ATTR_PATH but the read-back names no active type" "$EXIT_ERROR"
+	fi
+
+	if [[ $active != "$canonical" ]]; then
+		die "wrote '$canonical' to $ATTR_PATH but it reads back with '$active' active" "$EXIT_ERROR"
+	fi
+
+	printf '%s\n' "$canonical"
+	return "$EXIT_OK"
+}
+
 main() {
 	case ${1-} in
 	list)
@@ -172,10 +242,11 @@ main() {
 		cmd_status
 		;;
 	set)
-		die "set arrives with a later change; usage: ${0##*/} list | status" "$EXIT_USAGE"
+		(($# == 2)) || die "set takes exactly one argument, the charge type name" "$EXIT_USAGE"
+		cmd_set "$2"
 		;;
 	*)
-		die "usage: ${0##*/} list | ${0##*/} status" "$EXIT_USAGE"
+		die "usage: ${0##*/} list | ${0##*/} status | ${0##*/} set <type>" "$EXIT_USAGE"
 		;;
 	esac
 }

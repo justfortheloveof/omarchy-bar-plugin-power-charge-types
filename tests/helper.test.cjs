@@ -45,10 +45,13 @@ const ROOT_SIM = (() => {
 //   type:            contents of the supply's `type` file (omit to leave it absent)
 //   chargeTypes:     contents of its `charge_types` file (omit to leave it absent)
 //   chargeTypesMode: chmod for that file (e.g. 0o000 to make the read fail)
-//   chargeTypesFifo: make `charge_types` a FIFO, whose read side the fake
-//                    kernel (below) plays, so a write/read-back round trip can
-//                    be faked: a plain file cannot keep the brackets the real
-//                    attribute re-emits.
+//   chargeTypesFifo: make the attribute three FIFOs (ct_list, ct_write,
+//                    ct_confirm) whose other sides the fake kernel (below)
+//                    plays, so a write/read-back round trip can be faked: a
+//                    plain file cannot keep the brackets the real attribute
+//                    re-emits. Three, not one: the helper reads the attribute
+//                    twice and writes it once, and two readers on one FIFO
+//                    would race over each other's data.
 function harness(supplies = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "power-charge-types-"));
   const psDir = path.join(root, "sys", "class", "power_supply");
@@ -62,18 +65,36 @@ function harness(supplies = {}) {
       fs.writeFileSync(path.join(dir, "charge_types"), s.chargeTypes);
       if (s.chargeTypesMode !== undefined) fs.chmodSync(path.join(dir, "charge_types"), s.chargeTypesMode);
     }
-    if (s.chargeTypesFifo) fs.mkfifo(path.join(dir, "charge_types"));
+    if (s.chargeTypesFifo) {
+      // Node's fs module has no mkfifo, so ask the utility for one.
+      for (const f of ["ct_list", "ct_write", "ct_confirm"]) {
+        const r = spawnSync("mkfifo", [path.join(dir, f)]);
+        if (r.status !== 0) throw new Error(`mkfifo ${f} failed: ${r.stderr}`);
+      }
+    }
     dirs[name] = dir;
   }
 
   // Rewrite the two constants so the copy looks at our tree instead of /sys.
   // Everything else in the script is the code under test.
-  const script = path.join(root, "helper");
-  const rewritten = fs
+  let rewritten = fs
     .readFileSync(HELPER, "utf8")
     .replace(/^readonly PACKAGED_PATH=.*$/m, `readonly PACKAGED_PATH=${root}/libexec/lenovo-power/conservation`)
     .replace(/^readonly SUPPLY_GLOB=.*$/m, `readonly SUPPLY_GLOB='${psDir}/*'`);
-  fs.writeFileSync(script, rewritten, { mode: 0o755 });
+
+  // The FIFO variant points the helper's three attribute touches at the three
+  // FIFOs: the resolution read at ct_list, the write at ct_write, the
+  // read-back at ct_confirm. The write and read-back lines derive their paths
+  // from the (ct_list-valued) ATTR_PATH; the parsing and the comparison are
+  // the helper's own code, untouched.
+  if (Object.values(supplies).some((s) => s.chargeTypesFifo)) {
+    rewritten = rewritten
+      .replaceAll("$path/charge_types", "$path/ct_list")
+      .replaceAll('>"$ATTR_PATH"', '>"${ATTR_PATH%ct_list}ct_write"')
+      .replaceAll('cat -- "$ATTR_PATH"', 'cat -- "${ATTR_PATH%ct_list}ct_confirm"');
+  }
+  fs.writeFileSync(path.join(root, "helper"), rewritten, { mode: 0o755 });
+  const script = path.join(root, "helper");
 
   const run = (args, { asRoot = false } = {}) => {
     // Fail here, with the remedy, rather than letting unshare's exit code
@@ -90,30 +111,38 @@ function harness(supplies = {}) {
     }
 
     // The rewritten copy, not HELPER: the real one reads the real /sys.
+    // A timeout, so a pairing the fake kernel never completes fails the test
+    // in seconds instead of hanging the whole run.
     const res = asRoot
-      ? spawnSync("unshare", ["-r", script, ...args], { encoding: "utf8" })
-      : spawnSync(script, [...args], { encoding: "utf8" });
+      ? spawnSync("unshare", ["-r", script, ...args], { encoding: "utf8", timeout: 15000 })
+      : spawnSync(script, [...args], { encoding: "utf8", timeout: 15000 });
     if (res.error) throw res.error;
     return { code: res.status, out: res.stdout.replace(/\n$/, ""), err: res.stderr.trim() };
   };
 
-  // Play the kernel for a FIFO attribute: pair with the helper's write-open,
-  // record what it wrote, then serve `readback` to the helper's read-back.
-  // The open() pairings make this deterministic - no sleeps, no races.
-  const fakeKernel = (supplyName, readback, logFile) => {
-    const fifo = path.join(dirs[supplyName], "charge_types");
-    const prog = [
-      "const fs = require('node:fs');",
-      `const f = ${JSON.stringify(fifo)};`,
-      "let fd = fs.openSync(f, 'r');", // pairs with the helper's write-open
-      "const written = fs.readFileSync(fd);",
-      "fs.closeSync(fd);",
-      `fs.writeFileSync(${JSON.stringify(logFile)}, written);`,
-      "fd = fs.openSync(f, 'w');", // pairs with the helper's read-back open
-      `fs.writeSync(fd, ${JSON.stringify(readback)});`,
-      "fs.closeSync(fd);",
-    ].join("\n");
-    return spawn(process.execPath, ["-e", prog], { stdio: "ignore" });
+  // Play the kernel for a FIFO attribute. The helper touches the attribute
+  // three times - a resolution read, the write, a read-back - and a FIFO
+  // open() blocks until its peer opens, so this child sequences one open per
+  // helper step: serve `currentList` to the resolution read, drain the write
+  // (recording it in `logFile`), then serve `readback` to the read-back.
+  // The pairings make it deterministic - no sleeps, no races.
+  const fakeKernel = (supplyName, currentList, readback, logFile) => {
+    const dir = dirs[supplyName];
+    const kernelSh = path.join(root, "kernel.sh");
+    fs.writeFileSync(
+      kernelSh,
+      [`#!/bin/bash`, "set -eu",
+        // One command per helper touch, on a separate FIFO each, so no two
+        // peers ever share a pipe. Each redirect's open() blocks until the
+        // helper opens its end, and the helper's touches are strictly
+        // ordered, so the pairings are deterministic - no sleeps, no races.
+        'printf \'%s\' "$3" > "$1/ct_list"',   // the helper's resolution read
+        'cat -- "$1/ct_write" > "$2"',         // the helper's write, drained to the log
+        'printf \'%s\' "$4" > "$1/ct_confirm"', // the helper's read-back read
+        ""].join("\n"),
+      { mode: 0o755 }
+    );
+    return spawn("bash", [kernelSh, dir, logFile, currentList, readback], { stdio: "ignore" });
   };
 
   return { run, root, dirs, fakeKernel, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
@@ -255,15 +284,130 @@ test("list and status take no arguments, and unknown subcommands are refused", (
   for (const args of [
     ["list", "extra"],
     ["status", "extra"],
+    ["set"],
+    ["set", "Fast", "Standard"],
+    ["set", "Fast", "Standard", "Long_Life"],
     [],
     ["help"],
     ["--help"],
     ["LIST"],
     ["Status"],
+    ["SET", "Fast"],
     ["--status"],
     ["status", "--json"],
+    ["set", "--", "Fast"],
     [""],
   ]) {
-    assert.equal(h.run(args).code, 2, `${JSON.stringify(args)} should be a usage error`);
+    assert.equal(h.run(args, { asRoot: true }).code, 2, `${JSON.stringify(args)} should be a usage error`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// set: the only write, root-gated, validated, and confirmed by read-back.
+// ---------------------------------------------------------------------------
+
+test("set is refused without root, says what to run, and writes nothing", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard [Long_Life]" } });
+  t.after(h.cleanup);
+  const attr = path.join(h.dirs.BAT0, "charge_types");
+  const r = h.run(["set", "Standard"]);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /needs root/);
+  assert.match(r.err, /pkexec/, "the error should name the command to run");
+  assert.equal(fs.readFileSync(attr, "utf8"), "Fast Standard [Long_Life]", "and it must not have written anything");
+});
+
+test("set refuses a type not in the list it just read, even as root", (t) => {
+  // The entire validation surface after normalization: membership in the
+  // battery's own list. Each of these would be a different thing to hand to a
+  // root shell if it got through; the old 0/1 vocabulary is dead too.
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard [Long_Life]" } });
+  t.after(h.cleanup);
+  const attr = path.join(h.dirs.BAT0, "charge_types");
+  // Note the deliberately absent near-miss "Long_Life ": the spec trims first,
+  // so it normalizes to the listed member and is *valid* - it proceeds to the
+  // write and fails the read-back, which is a different test's territory.
+  const bad = ["Turbo", "0", "1", "01", "", " ", "long_life", "Standard; rm -rf /", "$(id)", "`id`", "Fast && reboot", "Standard|0"];
+  for (const value of bad) {
+    const r = h.run(["set", value], { asRoot: true });
+    assert.equal(r.code, 2, `set ${JSON.stringify(value)} should be a usage error`);
+    assert.equal(fs.readFileSync(attr, "utf8"), "Fast Standard [Long_Life]", `set ${JSON.stringify(value)} must not write`);
+  }
+});
+
+test("set normalizes spaces to underscores and writes the canonical listed form", (t) => {
+  // The kernel accepts both "Long Life" and "Long_Life" on write but reads
+  // emit the underscore form, so the dual-variant tolerance is absorbed here:
+  // the helper writes exactly the form the list spells it.
+  // A fresh harness per value: the fake kernel plays its three open() pairings
+  // exactly once, so it cannot serve a second run.
+  for (const value of ["Long Life", "  Long Life  "]) {
+    const h = harness({ BAT0: { type: "Battery", chargeTypesFifo: true } });
+    const log = path.join(h.root, "written");
+    const kernel = h.fakeKernel("BAT0", "Fast Standard [Long_Life]\n", "Fast [Long_Life]\n", log);
+    t.after(() => {
+      kernel.kill();
+      h.cleanup();
+    });
+    const r = h.run(["set", value], { asRoot: true });
+    assert.equal(r.code, 0, `set ${JSON.stringify(value)} should succeed`);
+    assert.equal(r.out, "Long_Life");
+    assert.equal(fs.readFileSync(log, "utf8"), "Long_Life", `the canonical listed form must be what is written for ${JSON.stringify(value)}`);
+  }
+});
+
+test("set switches the active type and reports the new one", (t) => {
+  const h = harness({ BAT0: { type: "Battery", chargeTypesFifo: true } });
+  const log = path.join(h.root, "written");
+  const kernel = h.fakeKernel("BAT0", "Fast [Standard]\n", "[Standard] Long_Life\n", log);
+  t.after(() => {
+    kernel.kill();
+    h.cleanup();
+  });
+  const r = h.run(["set", "Standard"], { asRoot: true });
+  assert.equal(r.code, 0);
+  assert.equal(r.out, "Standard", "stdout is the new active type name, one word");
+  assert.equal(fs.readFileSync(log, "utf8"), "Standard");
+});
+
+test("a read-back that does not show the written type active is an error", (t) => {
+  // The kernel is free to keep the old value active: a write that returned
+  // zero is not a switch, and the helper must say so, not celebrate. Long_Life
+  // is active, Standard is written, and the read-back still shows Long_Life.
+  const h = harness({ BAT0: { type: "Battery", chargeTypesFifo: true } });
+  const log = path.join(h.root, "written");
+  const kernel = h.fakeKernel("BAT0", "[Long_Life] Standard\n", "[Long_Life] Standard\n", log);
+  t.after(() => {
+    kernel.kill();
+    h.cleanup();
+  });
+  const r = h.run(["set", "Standard"], { asRoot: true });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Standard/);
+});
+
+test("a read-back with no bracketed entry is an error, not a success", (t) => {
+  // A plain file plays the attribute here: it takes the written value and
+  // re-emits it bare, brackets and all. The real attribute always re-emits
+  // brackets, so a bracketless read-back is a state the switch did not land
+  // in, and it must not be reported as the new active type.
+  const h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard [Long_Life]" } });
+  t.after(h.cleanup);
+  const r = h.run(["set", "Standard"], { asRoot: true });
+  assert.equal(r.code, 1);
+  assert.equal(r.out, "", "a failed set must not print a success value");
+});
+
+test("set with no qualifying battery reports the resolution failure", (t) => {
+  let h = harness({});
+  t.after(h.cleanup);
+  assert.equal(h.run(["set", "Fast"], { asRoot: true }).code, 3);
+
+  h = harness({ ADP1: { type: "Mains" } });
+  t.after(h.cleanup);
+  assert.equal(h.run(["set", "Fast"], { asRoot: true }).code, 3);
+
+  h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard" } });
+  t.after(h.cleanup);
+  assert.equal(h.run(["set", "Fast"], { asRoot: true }).code, 4);
 });
