@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Install the root-owned half of the Lenovo power plugin. The panel reads
-# conservation mode unprivileged, so it works the moment the plugin is enabled;
+# Install the root-owned half of the power-charge-types plugin. The panel reads
+# the charge type unprivileged, so it works the moment the plugin is enabled;
 # writing it needs root, and the helper copied here is the only thing elevated.
 #
 #   sudo ./install.sh
@@ -9,16 +9,16 @@
 
 set -euo pipefail
 
-readonly PACKAGED_DIR=/usr/local/libexec/lenovo-power
-readonly PACKAGED_PATH="$PACKAGED_DIR/conservation"
+readonly PACKAGED_DIR=/usr/local/libexec/io.github.justfortheloveof.power-charge-types
+readonly PACKAGED_PATH="$PACKAGED_DIR/charge-types"
 
 # Printed at the end, when the password prompt the user has just seen makes a
 # polkit rule worth mentioning.
-readonly REPO_URL=https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation
+readonly REPO_URL=https://github.com/justfortheloveof/omarchy-bar-plugin-power-charge-types
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly SCRIPT_DIR
-readonly SOURCE_PATH="$SCRIPT_DIR/bin/lenovo-power-conservation"
+readonly SOURCE_PATH="$SCRIPT_DIR/bin/charge-types"
 
 die() {
 	printf 'install.sh: %s\n' "$1" >&2
@@ -31,9 +31,9 @@ die() {
 
 # Not fatal: installing on a machine without the attribute is how you find out
 # the panel says "unsupported" rather than failing to load.
-if ! compgen -G '/sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode' >/dev/null; then
-	printf 'Warning: no ideapad_acpi conservation_mode attribute on this machine.\n' >&2
-	printf '         The panel will report the toggle as unsupported.\n' >&2
+if ! compgen -G '/sys/class/power_supply/*/charge_types' >/dev/null; then
+	printf 'Warning: no charge_types attribute on any power supply on this machine.\n' >&2
+	printf '         The panel will report the charge type as unsupported.\n' >&2
 fi
 
 if [[ -e $PACKAGED_PATH ]]; then
@@ -53,13 +53,13 @@ mode=$(stat -Lc '%a' "$PACKAGED_PATH") || die "cannot stat $PACKAGED_PATH"
 [[ $owner == root ]] || die "$PACKAGED_PATH is owned by $owner, expected root"
 ((8#$mode & 022)) && die "$PACKAGED_PATH is mode $mode, which lets someone other than root modify it"
 
-if ! grep -qF 'lenovo-power-conservation: installed by' "$PACKAGED_PATH"; then
+if ! grep -qF 'charge-types: installed by' "$PACKAGED_PATH"; then
 	die "$PACKAGED_PATH does not look like our helper; refusing to leave it in place"
 fi
 
 printf '\nInstalled %s (%s, mode %s)\n' "$PACKAGED_PATH" "$owner" "$mode"
-printf '\nThe panel can read the current mode now. Writing it asks for your\n'
-printf 'password once per toggle, through the Omarchy authentication dialog.\n'
+printf '\nThe panel can read the current charge type now. Writing it asks for your\n'
+printf 'password once per change, through the Omarchy authentication dialog.\n'
 printf 'A polkit rule can be created to skip that prompt. See:\n'
 printf '  %s#skipping-the-authentication\n' "$REPO_URL"
 printf '\nReload the shell to pick it up:\n'
