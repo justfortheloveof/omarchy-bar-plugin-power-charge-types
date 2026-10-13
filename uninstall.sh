@@ -20,16 +20,6 @@ readonly RULES_PATH=/etc/polkit-1/rules.d/50-power-charge-types.rules
 # from.
 readonly RULES_MARKER='https://github.com/justfortheloveof/omarchy-bar-plugin-power-charge-types'
 
-# The 0.1.0 plugin, power-lenovo-battery-conservation, installed its helper and
-# its (opt-in) rule at these paths. Its manifest id was replaced, so an in-place
-# directory update would not touch them; each is removed only if its marker
-# proves it is that plugin's file, and both removals are idempotent.
-readonly LEGACY_HELPER_DIR=/usr/local/libexec/lenovo-power
-readonly LEGACY_HELPER_PATH="$LEGACY_HELPER_DIR/conservation"
-readonly LEGACY_HELPER_MARKER='lenovo-power-conservation: installed by'
-readonly LEGACY_RULES_PATH=/etc/polkit-1/rules.d/50-lenovo-power-conservation.rules
-readonly LEGACY_RULES_MARKER='https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation'
-
 die() {
 	printf 'uninstall.sh: %s\n' "$1" >&2
 	exit 1
@@ -88,28 +78,6 @@ if [[ -e $RULES_PATH ]]; then
 		printf 'Left in place. Remove it yourself with:\n  rm %s\n' "$RULES_PATH"
 		;;
 	esac
-fi
-
-# Legacy cleanup: 0.1.0, power-lenovo-battery-conservation, left its helper and
-# its (opt-in) rule at the old paths. A manifest id is a plugin's unique key, so
-# that install will never upgrade in place - but a directory update run against
-# an old checkout would. Remove whatever is there only if the marker check proves
-# each file is the old plugin's, and quietly: nothing is offered or refused, and
-# running this twice changes nothing the second time.
-if [[ -e $LEGACY_HELPER_PATH ]]; then
-	if grep -qF "$LEGACY_HELPER_MARKER" "$LEGACY_HELPER_PATH"; then
-		rm -f "$LEGACY_HELPER_PATH"
-		printf 'Removed the legacy 0.1.0 helper %s\n' "$LEGACY_HELPER_PATH"
-	fi
-	# rmdir fails on a non-empty directory, and set -e would abort the whole
-	# uninstall over it; a directory holding anything besides the helper is
-	# not ours to take, so a failed rmdir is a quiet no-op.
-	rmdir "$LEGACY_HELPER_DIR" 2>/dev/null && printf 'Removed the legacy 0.1.0 directory %s\n' "$LEGACY_HELPER_DIR" || true
-fi
-
-if [[ -e $LEGACY_RULES_PATH ]] && grep -qF "$LEGACY_RULES_MARKER" "$LEGACY_RULES_PATH"; then
-	rm -f "$LEGACY_RULES_PATH"
-	printf 'Removed the legacy 0.1.0 rule %s\n' "$LEGACY_RULES_PATH"
 fi
 
 if ((helper_was_installed)); then

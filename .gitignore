@@ -1,13 +1,11 @@
-*.swp
-.DS_Store
-
-# Conflict residue. tools/sync-upstream three-way merges by hand, so .orig and
-# .rej files turn up whenever a merge needs resolving.
-*.orig
-*.rej
 /.agents
 /AGENTS.md
-/GLOSSARY.md
+/docs/adr
 /docs/agents
+.DS_Store
+/GLOSSARY.md
+*.orig
+*.rej
 /.scratch
 /skills-lock.json
+*.swp

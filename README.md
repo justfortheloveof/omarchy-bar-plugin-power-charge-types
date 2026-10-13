@@ -24,9 +24,6 @@ It uses the power supply's `charge_types` attribute, which the kernel exposes on
 > removing this plugin brings the stock one back.
 
 > [!NOTE]
-> Installed `power-lenovo-battery-conservation` 0.1.0? Remove it first: this plugin has a new manifest id, so it will never upgrade in place. Run its `uninstall.sh` for the helper, then `omarchy plugin remove io.github.justfortheloveof.power-lenovo-battery-conservation --yes`, and add this one fresh.
-
-> [!NOTE]
 > The `charge_types` attribute requires **kernel ≥ 6.14** (December 2024). On an
 > older kernel the row still appears, but the caption says the battery has no
 > charge-type control and the dropdown stays disabled.
@@ -118,7 +115,6 @@ omarchy plugin remove io.github.justfortheloveof.power-charge-types --yes
 
 - `omarchy plugin remove` only knows about files under `~/.config/omarchy/plugins`, so it leaves the root-owned helper - and the polkit rule, if you added one - on the system.
 - `uninstall.sh` removes the helper, and if it finds the optional polkit rule it asks before removing that too. Answer `y` and both go; anything else leaves the rule alone and prints the command to remove it yourself.
-- Coming from 0.1.0? `uninstall.sh` also removes what `power-lenovo-battery-conservation` left behind - its helper and polkit rule - each only if it recognises its own marker, so anything you have since replaced by hand is left alone.
 
 ## How the privileged part works
 
