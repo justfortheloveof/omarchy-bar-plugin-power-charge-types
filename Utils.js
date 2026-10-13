@@ -117,21 +117,58 @@ function normalizeChargeType(value) {
   return text
 }
 
-// Which row the panel's cursor lands on for a vertical move. Ours sits below the
-// profile buttons, the panel's one focusable row, and movement alternates between
-// the two. `focused` is "the cursor is on our row", `available` keeps an unusable
-// row out of the walk, and `hasProfiles` says whether there is a profile row to
-// move to. Moving past either end stays put, because wrapping would change a profile.
-function moveFocusRow(focused, delta, available, hasProfiles) {
-  if (available !== true) return focused === true
+// Which row the panel's cursor lands on for a vertical move. `row` is the
+// cursor's current row in display order, or -1 while unarmed; `availableRows`
+// says, per row in the same order, which rows the walk may enter, and keeps an
+// unusable row out of it. Moving past either end clamps onto the last available
+// row in that direction, because wrapping would land on the wrong control.
+// An unarmed cursor arms on the first available row in the move direction.
+function moveRowFocus(row, delta, availableRows) {
+  var rows = Array.isArray(availableRows) ? availableRows : []
+  var current = Number(row)
+  if (current !== current) current = -1
 
-  // Down always lands on our row: it is the last thing below the profiles.
-  if (delta > 0) return true
+  // Unarmed: down lands on the first available row, up on the last; with
+  // none available the cursor has nowhere to arm, so it stays at -1.
+  if (current < 0) {
+    if (delta > 0) {
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i] === true) return i
+      }
+    } else if (delta < 0) {
+      for (var j = rows.length - 1; j >= 0; j--) {
+        if (rows[j] === true) return j
+      }
+    }
+    return -1
+  }
 
-  // Up returns to the profiles, and stays put when there are none.
-  if (delta < 0) return hasProfiles === true ? false : true
+  // Armed: walk in the move direction to the next available row.
+  if (delta > 0) {
+    for (var k = current + 1; k < rows.length; k++) {
+      if (rows[k] === true) return k
+    }
+  } else if (delta < 0) {
+    for (var l = current - 1; l >= 0; l--) {
+      if (rows[l] === true) return l
+    }
+  } else {
+    return current
+  }
 
-  return focused
+  // Nothing in that direction: clamp onto the end available row, staying put
+  // when the walk has nowhere left to go.
+  if (delta > 0) {
+    for (var m = rows.length - 1; m >= 0; m--) {
+      if (rows[m] === true) return m
+    }
+  } else if (delta < 0) {
+    for (var n = 0; n < rows.length; n++) {
+      if (rows[n] === true) return n
+    }
+  }
+
+  return current
 }
 
 // Whether the conservation row should claim the cursor when hovered. Only a row
@@ -176,7 +213,7 @@ if (typeof module !== "undefined") {
     isAcceptedValue: isAcceptedValue,
     normalizeChargeType: normalizeChargeType,
     shouldNotify: shouldNotify,
-    moveFocusRow: moveFocusRow,
+    moveRowFocus: moveRowFocus,
     hoverClaimsFocus: hoverClaimsFocus,
     healthText: healthText,
     ceilingText: ceilingText,

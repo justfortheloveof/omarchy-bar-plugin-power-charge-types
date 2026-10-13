@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
-const { parseChargeTypes, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
+const { parseChargeTypes, isAcceptedValue, describe, shouldNotify, moveRowFocus, hoverClaimsFocus, healthText, ceilingText } = ctx;
 
 // Exactly what bin/lenovo-power-conservation prints for `list`, and the word
 // the panel's own wrapper supplies when the helper is missing.
@@ -203,28 +203,39 @@ test("the README quotes the row's strings verbatim", () => {
   }
 });
 
-test("moveFocusRow walks between the profile row and ours", () => {
-  assert.equal(moveFocusRow(false, 1, true, true), true, "down lands on ours");
-  assert.equal(moveFocusRow(true, -1, true, true), false, "up returns to profiles");
+// moveRowFocus: the panel's row cursor over the ordered rows below the stats
+// (charge row first, profile row second). -1 is the unarmed cursor.
+test("moveRowFocus from the unarmed cursor lands on an available row", () => {
+  assert.equal(moveRowFocus(-1, 1, [true, true]), 0, "down lands on the first available row");
+  assert.equal(moveRowFocus(-1, 1, [false, true]), 1, "skipping the unavailable one");
+  assert.equal(moveRowFocus(-1, -1, [true, true]), 1, "up lands on the last available row");
+  assert.equal(moveRowFocus(-1, -1, [true, false]), 0);
 });
 
-test("moveFocusRow leaves the cursor at the end rather than wrapping", () => {
-  assert.equal(moveFocusRow(true, 1, true, true), true);
-  assert.equal(moveFocusRow(false, -1, true, true), false);
+test("moveRowFocus stays unarmed when nothing is available", () => {
+  assert.equal(moveRowFocus(-1, 1, [false, false]), -1);
+  assert.equal(moveRowFocus(-1, -1, [false, false]), -1);
 });
 
-test("moveFocusRow ignores vertical moves when our row is unavailable", () => {
-  assert.equal(moveFocusRow(false, 1, false, true), false, "not installed");
-  assert.equal(moveFocusRow(true, -1, false, true), true, "stays put, no escape");
+test("moveRowFocus walks between the available rows", () => {
+  assert.equal(moveRowFocus(0, 1, [true, true]), 1, "down moves to the profile row");
+  assert.equal(moveRowFocus(1, -1, [true, true]), 0, "up returns to the charge row");
 });
 
-test("moveFocusRow reaches ours directly when there are no profiles", () => {
-  assert.equal(moveFocusRow(false, 1, true, false), true);
+test("moveRowFocus clamps at both ends rather than wrapping", () => {
+  assert.equal(moveRowFocus(1, 1, [true, true]), 1, "past the bottom stays put");
+  assert.equal(moveRowFocus(0, -1, [true, true]), 0, "past the top stays put");
 });
 
-test("moveFocusRow ignores a zero delta", () => {
-  assert.equal(moveFocusRow(false, 0, true, true), false);
-  assert.equal(moveFocusRow(true, 0, true, true), true);
+test("moveRowFocus skips rows that became unavailable", () => {
+  assert.equal(moveRowFocus(0, 1, [true, false]), 0, "no available row below, so it stays");
+  assert.equal(moveRowFocus(1, -1, [false, true]), 1, "no available row above, so it stays");
+  assert.equal(moveRowFocus(0, 1, [false, true]), 1, "the row under the cursor dropped out, the walk continues");
+});
+
+test("moveRowFocus ignores a zero delta", () => {
+  assert.equal(moveRowFocus(0, 0, [true, true]), 0);
+  assert.equal(moveRowFocus(-1, 0, [true, true]), -1);
 });
 
 test("hoverClaimsFocus follows whether the row could be activated", () => {
