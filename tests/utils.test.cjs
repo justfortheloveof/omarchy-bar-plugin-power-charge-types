@@ -8,7 +8,7 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
 const { parseChargeTypes, isAcceptedValue, describe, shouldNotify, moveRowFocus, hoverClaimsFocus, healthText, ceilingText } = ctx;
 
-// Exactly what bin/lenovo-power-conservation prints for `list`, and the word
+// Exactly what bin/charge-types prints for `list`, and the word
 // the panel's own wrapper supplies when the helper is missing.
 const LIST_OK = "Fast\nStandard\n[Long_Life]\n";
 const NO_SUCH_MACHINE = "unsupported";
@@ -138,7 +138,7 @@ test("shouldNotify stays quiet on success", () => {
 });
 
 test("shouldNotify speaks up for a real failure", () => {
-  assert.equal(shouldNotify(1, ["conservation: refusing to write '2'"]), true);
+  assert.equal(shouldNotify(1, ["charge-types: refusing to write 'Turbo'"]), true);
   assert.equal(shouldNotify(127, ["command not found"]), true);
 });
 
@@ -152,7 +152,7 @@ test("shouldNotify has nothing to say without an explanation", () => {
 });
 
 test("shouldNotify keeps the real explanation in a noisy stream", () => {
-  assert.equal(shouldNotify(1, ["", "conservation: no attribute found", ""]), true);
+  assert.equal(shouldNotify(1, ["", "charge-types: no attribute found", ""]), true);
 });
 
 test("describe is the parsed list, for the panel's flags", () => {
@@ -177,10 +177,10 @@ test("describe treats silence as not installed", () => {
 
 test("the helper's failure words are the ones parseChargeTypes knows", () => {
   // parseChargeTypes recognises the words by their exact spelling. If
-  // bin/lenovo-power-conservation ever changes what `list` prints on failure,
+  // bin/charge-types ever changes what `list` prints on failure,
   // the panel would read a working battery as unparseable, and these tests
   // should be the thing that notices.
-  const helper = fs.readFileSync(`${__dirname}/../bin/lenovo-power-conservation`, "utf8");
+  const helper = fs.readFileSync(`${__dirname}/../bin/charge-types`, "utf8");
   assert.match(helper, /printf 'unsupported\\n'/, "prints the unsupported word");
   assert.match(helper, /printf 'unknown\\n'/, "prints the unknown word");
 });

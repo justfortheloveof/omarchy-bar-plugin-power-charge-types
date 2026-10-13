@@ -1,6 +1,5 @@
-// Tests for bin/lenovo-power-conservation, now the `charge_types` helper -
-// run with:
-//   node --test tests/helper.test.cjs
+// Tests for bin/charge-types, the `charge_types` helper - run with:
+//   node --test tests/charge-types.test.cjs
 //
 // The helper hardcodes its power_supply glob and its installed path, both on
 // purpose, so the tests run a copy with those two constants rewritten into a
@@ -18,7 +17,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 
-const HELPER = path.join(__dirname, "..", "bin", "lenovo-power-conservation");
+const HELPER = path.join(__dirname, "..", "bin", "charge-types");
 
 // How this file fakes root. Probed once, up front, and the answer kept: without
 // it, a host that forbids unprivileged user namespaces hands back *unshare's*
@@ -79,7 +78,7 @@ function harness(supplies = {}) {
   // Everything else in the script is the code under test.
   let rewritten = fs
     .readFileSync(HELPER, "utf8")
-    .replace(/^readonly PACKAGED_PATH=.*$/m, `readonly PACKAGED_PATH=${root}/libexec/lenovo-power/conservation`)
+    .replace(/^readonly PACKAGED_PATH=.*$/m, `readonly PACKAGED_PATH=${root}/libexec/io.github.justfortheloveof.power-charge-types/charge-types`)
     .replace(/^readonly SUPPLY_GLOB=.*$/m, `readonly SUPPLY_GLOB='${psDir}/*'`);
 
   // The FIFO variant points the helper's three attribute touches at the three
@@ -410,4 +409,28 @@ test("set with no qualifying battery reports the resolution failure", (t) => {
   h = harness({ BAT0: { type: "Battery", chargeTypes: "Fast Standard" } });
   t.after(h.cleanup);
   assert.equal(h.run(["set", "Fast"], { asRoot: true }).code, 4);
+});
+
+// ---------------------------------------------------------------------------
+// The installed path: the helper, install.sh, uninstall.sh and Panel.qml must
+// all agree on where the installed copy lives, or the panel would probe a file
+// install.sh never made.
+// ---------------------------------------------------------------------------
+
+test("the helper, install.sh, uninstall.sh, and Panel.qml agree on the installed path", () => {
+  const dir = "/usr/local/libexec/io.github.justfortheloveof.power-charge-types";
+  const full = `${dir}/charge-types`;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const helper = fs.readFileSync(`${__dirname}/../bin/charge-types`, "utf8");
+  const install = fs.readFileSync(`${__dirname}/../install.sh`, "utf8");
+  const uninstall = fs.readFileSync(`${__dirname}/../uninstall.sh`, "utf8");
+  const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
+
+  assert.match(helper, new RegExp(`^readonly PACKAGED_PATH=${esc(full)}$`, "m"), "the helper names the installed path");
+  assert.match(install, new RegExp(`^readonly PACKAGED_DIR=${esc(dir)}$`, "m"), "install.sh names the installed directory");
+  assert.match(install, /^readonly PACKAGED_PATH="\$PACKAGED_DIR\/charge-types"$/m, "install.sh installs into it");
+  assert.match(uninstall, new RegExp(`^readonly PACKAGED_DIR=${esc(dir)}$`, "m"), "uninstall.sh removes the installed directory");
+  assert.match(uninstall, /^readonly PACKAGED_PATH="\$PACKAGED_DIR\/charge-types"$/m, "uninstall.sh removes the helper from it");
+  assert.match(panel, new RegExp(`chargeTypesHelper: "${esc(full)}"`), "Panel.qml invokes the installed copy");
 });
