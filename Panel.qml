@@ -5,9 +5,9 @@ import Quickshell.Services.UPower
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
-// ---- lenovo-conservation: start ----
+// ---- charge-types: start ----
 import "Utils.js" as Utils
-// ---- lenovo-conservation: end ----
+// ---- charge-types: end ----
 
 Panel {
   id: root
@@ -22,11 +22,11 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   // The installed helper is the only thing that touches the charge_types
   // attribute. Every flag below starts pessimistic, so a probe that never runs
   // leaves a plainly unusable row rather than a dropdown that looks live.
-  readonly property string chargeTypesHelper: "/usr/local/libexec/lenovo-power/conservation"
+  readonly property string chargeTypesHelper: "/usr/local/libexec/io.github.justfortheloveof.power-charge-types/charge-types"
   property bool chargeTypesInstalled: false
   property bool chargeTypesSupported: false
   property bool chargeTypesKnown: false
@@ -69,7 +69,7 @@ Panel {
     if (!chargeTypesKnown) return "Current charge type unknown: the battery reported a value this plugin does not recognise."
     return "Long Life stops charging early to reduce battery wear."
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -112,7 +112,7 @@ Panel {
     return Model.profileIcon(name)
   }
 
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   // Fold whatever the helper printed into the flags. Anything unreadable leaves
   // chargeTypesKnown false, which keeps the row disabled rather than showing a
   // type nobody read.
@@ -163,7 +163,7 @@ Panel {
     if (root.cursorRow === 0) root.chargeTypesDropdown.open()
     else if (root.cursorRow === 1) root.activateSelectedProfile()
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
 
   readonly property bool fullyCharged: {
     var device = UPower.displayDevice
@@ -242,19 +242,19 @@ Panel {
     if (!batteryProc.running) batteryProc.running = true
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
-    // ---- lenovo-conservation: start ----
+    // ---- charge-types: start ----
     root.refreshChargeTypes()
-    // ---- lenovo-conservation: end ----
-  } // lenovo-conservation
+    // ---- charge-types: end ----
+  } // charge-types
 
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   // The health read is one-shot per panel session: the value barely moves,
   // so a transient empty payload renders as the dash it already is, and no
   // keep-last-known-good guard is needed.
   function updateHealth(raw) {
     batteryHealthText = Utils.healthText(raw)
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
 
   function updateKeyValue(raw, targetName) {
     var next = Model.parseKeyValue(raw)
@@ -299,7 +299,7 @@ Panel {
     function hide() { root.close() }
     function toggle() { root.toggle() }
     function togglePercentage() { root.togglePercentage() }
-    // ---- lenovo-conservation: start ----
+    // ---- charge-types: start ----
     // The value asked for, not the result: pkexec prompts, so the write has not
     // happened yet when this replies.
     function setChargeType(type): string { return root.requestSetChargeType(type) }
@@ -307,7 +307,7 @@ Panel {
       if (!root.chargeTypesKnown) return "unknown"
       return root.chargeTypesActiveType
     }
-    // ---- lenovo-conservation: end ----
+    // ---- charge-types: end ----
   }
 
   onOpenedChanged: {
@@ -321,13 +321,13 @@ Panel {
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
       cursorActive = false
-      // ---- lenovo-conservation: start ----
+      // ---- charge-types: start ----
       // Reset with cursorActive: a row focused in the last session would
       // otherwise light on the first key press after reopening.
       cursorRow = -1
       // One-shot: read the health files once per panel session.
       if (!healthProc.running) healthProc.running = true
-      // ---- lenovo-conservation: end ----
+      // ---- charge-types: end ----
     }
   }
 
@@ -355,7 +355,7 @@ Panel {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "system") }
   }
 
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   // Reading needs no privilege. `2>/dev/null` keeps a "No such file" from a
   // machine without BAT0 out of the shell log on every read; the string is
   // fully fixed, so nothing caller-controlled reaches the shell.
@@ -364,14 +364,14 @@ Panel {
     command: ["sh", "-c", "cat /sys/class/power_supply/BAT0/energy_full /sys/class/power_supply/BAT0/energy_full_design 2>/dev/null"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateHealth(text) }
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
 
   Process {
     id: actionProc
     onExited: root.refresh()
   }
 
-  // ---- lenovo-conservation: start ----
+  // ---- charge-types: start ----
   // Reading needs no privilege, so this never prompts. The helper's path is
   // passed as an argument, and the string itself is fixed, so nothing the
   // caller controls reaches the shell.
@@ -408,7 +408,7 @@ Panel {
       root.refreshChargeTypes()
     }
   }
-  // ---- lenovo-conservation: end ----
+  // ---- charge-types: end ----
 
   Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
 
@@ -484,14 +484,14 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      // Suspends the panel's dispatcher while the dropdown's popup owns the keys. // lenovo-conservation
-      blocked: chargeTypesDropdown.popupOpen // lenovo-conservation
+      // Suspends the panel's dispatcher while the dropdown's popup owns the keys. // charge-types
+      blocked: chargeTypesDropdown.popupOpen // charge-types
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         if (dx !== 0) root.selectProfileByDelta(dx)
-        else if (dy !== 0) root.moveRowFocus(dy) // lenovo-conservation
+        else if (dy !== 0) root.moveRowFocus(dy) // charge-types
       }
-      onActivateRequested: root.activateCursor() // lenovo-conservation
+      onActivateRequested: root.activateCursor() // charge-types
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -617,7 +617,7 @@ Panel {
           Column {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
-            InfoPair { label: "Battery health"; value: root.batteryHealthText } // lenovo-conservation
+            InfoPair { label: "Battery health"; value: root.batteryHealthText } // charge-types
             InfoPair { label: "Charge cycles"; value: root.batteryInfo.cycles || "—" }
           }
 
@@ -626,11 +626,11 @@ Panel {
             spacing: Style.spacing.labelGap
             InfoPair {
               label: root.chargeThresholdActive ? "Charge limit" : (root.discharging ? "Time left" : "Time to full")
-              // ---- lenovo-conservation: start ----
+              // ---- charge-types: start ----
               value: root.chargeThresholdActive
                 ? Utils.ceilingText(root.batteryInfo.threshold, root.chargeTypesActiveType)
                 : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
-              // ---- lenovo-conservation: end ----
+              // ---- charge-types: end ----
             }
             InfoPair {
               label: root.chargeThresholdActive ? "Battery state" : (root.discharging ? "Discharging" : "Charging")
@@ -639,7 +639,7 @@ Panel {
           }
         }
 
-        // ---- lenovo-conservation: start ----
+        // ---- charge-types: start ----
         // ---------- Charge profile picker ----------
         PanelSeparator {
           foreground: root.bar.foreground
@@ -690,7 +690,7 @@ Panel {
             width: parent.width
           }
         }
-        // ---- lenovo-conservation: end ----
+        // ---- charge-types: end ----
 
         // ---------- Power profile picker ----------
         PanelSeparator {
@@ -732,13 +732,13 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && root.cursorRow === 1 && root.profileIndex === index // lenovo-conservation
+                hasCursor: root.cursorActive && root.cursorRow === 1 && root.profileIndex === index // charge-types
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
                     root.profileIndex = index
-                    root.cursorRow = 1 // lenovo-conservation
+                    root.cursorRow = 1 // charge-types
                   }
                 }
               }
