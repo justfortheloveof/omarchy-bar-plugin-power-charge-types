@@ -158,13 +158,14 @@ function healthText(raw) {
   return (full / design * 100).toFixed(1) + "%"
 }
 
-// The "Charge limit" row's value. A real upstream threshold wins; else a
-// conservation-capped battery shows the model-typical ceiling; else the
+// The "Charge limit" row's value. A real upstream threshold wins: the user
+// set a limit, it is theirs, whatever the charge type is doing. Else the
+// Long Life charge type shows the model-typical ceiling; else the
 // not-measurable dash. The tilde is honest: the conservation ceiling is
 // firmware-defined (60-80%), not something we read back.
-function ceilingText(threshold, conservationActive) {
+function ceilingText(threshold, activeType) {
   if (threshold) return String(threshold)
-  if (conservationActive === true) return "~80%"
+  if (activeType === "Long_Life") return "~80%"
   return "-"
 }
 

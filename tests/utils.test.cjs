@@ -272,20 +272,25 @@ test("healthText is a dash for more than two tokens", () => {
 });
 
 // ceilingText: the "Charge limit" row's value. A real upstream threshold wins;
-// a conservation-capped battery shows the model-typical ceiling; else the dash.
-test("ceilingText shows a real upstream threshold, even with conservation on", () => {
-  assert.equal(ceilingText("80%", true), "80%");
-  assert.equal(ceilingText("75-80%", false), "75-80%");
+// else the Long Life charge type shows the model-typical ceiling; else the dash.
+test("ceilingText shows a real upstream threshold, even with Long Life active", () => {
+  // The user set a limit: it is theirs, whatever the charge type is doing.
+  assert.equal(ceilingText("80%", "Long_Life"), "80%");
+  assert.equal(ceilingText("75-80%", "Fast"), "75-80%");
 });
 
-test("ceilingText falls back to the conservation ceiling when no threshold is set", () => {
+test("ceilingText falls back to the Long Life ceiling when no threshold is set", () => {
   // The tilde is the honest hedge: the conservation ceiling is firmware-defined
   // (60-80%), not something we read back, so we assert the typical value.
-  assert.equal(ceilingText(undefined, true), "~80%");
-  assert.equal(ceilingText("", true), "~80%");
+  assert.equal(ceilingText(undefined, "Long_Life"), "~80%");
+  assert.equal(ceilingText("", "Long_Life"), "~80%");
 });
 
-test("ceilingText is a dash when neither a threshold nor conservation applies", () => {
-  assert.equal(ceilingText(undefined, false), "-");
-  assert.equal(ceilingText("", false), "-");
+test("ceilingText is a dash for every other charge type", () => {
+  // Fast and Standard charge to the top; an unreadable active type claims
+  // nothing either - the row says "not measurable", not a guess.
+  assert.equal(ceilingText(undefined, "Fast"), "-");
+  assert.equal(ceilingText("", "Standard"), "-");
+  assert.equal(ceilingText(undefined, null), "-");
+  assert.equal(ceilingText("", ""), "-");
 });
