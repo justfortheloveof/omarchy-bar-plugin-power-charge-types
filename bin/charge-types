@@ -1,12 +1,10 @@
 #!/bin/bash
 #
-# lenovo-power-conservation: read or set the battery's charge type.
+# charge-types: read or set the battery's charge type.
 #
-# The file is still named for the old conservation-mode behaviour (the rename
-# to bin/charge-types lands in a later ticket); its behaviour is now the
-# charge_types protocol: `list`, `status`, and `set`.
+# The charge_types protocol: `list`, `status`, and `set`.
 #
-# Source:   https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation
+# Source:   https://github.com/justfortheloveof/omarchy-bar-plugin-power-charge-types
 # License:  MIT, the same terms as Omarchy itself.
 # Installed by install.sh from that repository. Removed by uninstall.sh from the
 # same repository, or by deleting the file, since it keeps no state.
@@ -21,18 +19,18 @@
 # cannot elevate itself.
 #
 # Usage:
-#   lenovo-power-conservation list
-#   lenovo-power-conservation status
-#   pkexec /usr/local/libexec/lenovo-power/conservation set <type>
+#   charge-types list
+#   charge-types status
+#   pkexec /usr/local/libexec/io.github.justfortheloveof.power-charge-types/charge-types set <type>
 
 set -euo pipefail
 
 # Marker used by uninstall.sh to confirm the file it is about to remove really
 # is ours and not something else that happens to sit at this path.
-readonly MARKER='lenovo-power-conservation: installed by the omarchy lenovo-power plugin'
+readonly MARKER='charge-types: installed by the omarchy power-charge-types plugin'
 
 # The installed copy, named only for error messages. Never used to run anything.
-readonly PACKAGED_PATH=/usr/local/libexec/lenovo-power/conservation
+readonly PACKAGED_PATH=/usr/local/libexec/io.github.justfortheloveof.power-charge-types/charge-types
 
 # The power-supply class. Fixed here, never assembled from caller input. The
 # charge_types attribute (kernel >= 6.14) sits in each supply's directory.
