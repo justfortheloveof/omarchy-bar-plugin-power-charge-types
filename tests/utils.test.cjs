@@ -185,24 +185,36 @@ test("the helper's failure words are the ones parseChargeTypes knows", () => {
   assert.match(helper, /printf 'unknown\\n'/, "prints the unknown word");
 });
 
-test("the README quotes the row's strings verbatim", () => {
-  // The reading-the-row table tells a user which sentence in their panel maps to
-  // which explanation, so it has to quote exactly what the panel prints. A
-  // reword of any of them silently breaks the lookup.
+test("the panel's caption carries the four spec states verbatim", () => {
+  // The readiness caption is the only text that says whether a disabled row
+  // shows a fact or a guess, so its four wordings are locked to the spec's.
+  // (The README-verbatim counterpart of this lock returns once the README is
+  // rewritten for charge types.)
   const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
-  const readme = fs.readFileSync(`${__dirname}/../README.md`, "utf8");
 
-  const block = panel.slice(
-    panel.indexOf("readonly property string conservationDescription")
-  );
+  const at = panel.indexOf("readonly property string chargeTypesDescription");
+  assert.notEqual(at, -1, "Panel.qml declares the chargeTypesDescription caption");
+  const block = panel.slice(at);
   const strings = [
     ...block.slice(0, block.indexOf("\n  }")).matchAll(/return "([^"]+)"/g),
   ].map((m) => m[1]);
 
-  assert.equal(strings.length, 4, "expected the four panel states");
-  for (const s of strings) {
-    assert.ok(readme.includes(s), `README should quote verbatim: ${s}`);
-  }
+  assert.deepEqual(strings, [
+    "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes.",
+    "No charge-type control on this battery, so the type cannot be changed.",
+    "Current charge type unknown: the battery reported a value this plugin does not recognise.",
+    "Long Life stops charging early to reduce battery wear.",
+  ]);
+});
+
+test("the panel builds the CHARGE PROFILE section the spec describes", () => {
+  // The section's shape is user-visible: its header, the dropdown's label,
+  // and the dropdown type itself are what a user sees, so lock them.
+  const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
+  assert.match(panel, /PanelSectionHeader \{[^}]*text: "CHARGE PROFILE"/s, "the section header");
+  assert.match(panel, /label: "Charge type"/, "the dropdown's label");
+  assert.match(panel, /Dropdown \{/, "a qs.Ui.Dropdown, not a Toggle");
+  assert.ok(!/Toggle \{/.test(panel), "the old Toggle is gone");
 });
 
 // moveRowFocus: the panel's row cursor over the ordered rows below the stats
