@@ -75,7 +75,8 @@ active_name() {
 }
 
 # Globals filled by attr_path: the resolved attribute, its just-read contents,
-# and the failure word to report when nothing qualifies.
+# and the failure word to report when nothing qualifies. REJECT_WORD is set on
+# the failure path only, where the reject/ die paths read it.
 ATTR_PATH=
 ATTR_RAW=
 REJECT_WORD=unsupported
@@ -111,7 +112,6 @@ attr_path() {
 
 		saw_readable_battery=1
 		if active_name "$raw" >/dev/null; then
-			REJECT_WORD=unsupported
 			ATTR_PATH=$path/charge_types
 			ATTR_RAW=$raw
 			return 0
@@ -192,8 +192,12 @@ cmd_set() {
 	while [[ $value == _* ]]; do value=${value#_}; done
 	while [[ $value == *_ ]]; do value=${value%_}; done
 
-	# Validation against the list just read, before a byte is written. The
-	# whole surface: non-empty, and a member of the battery's own list.
+	# A blank value is a usage error in its own right, so it is refused before
+	# any path resolution: a typo on an unsupported machine is still a usage
+	# error (2), not an unsupported one (3).
+	[[ -n $value ]] || die "refusing to write an empty charge type" "$EXIT_USAGE"
+
+	# Validation against the list just read, before a byte is written.
 	attr_path || {
 		if [[ $REJECT_WORD == unknown ]]; then
 			die "the battery's charge_types list has no single active entry; cannot set a charge type" "$EXIT_UNKNOWN"
@@ -201,7 +205,6 @@ cmd_set() {
 		die "no usable charge_types attribute found; this battery offers no charge-type control" "$EXIT_UNSUPPORTED"
 	}
 
-	[[ -n $value ]] || die "refusing to write an empty charge type" "$EXIT_USAGE"
 	canonical=$(list_member "$ATTR_RAW" "$value") ||
 		die "refusing to write '$value': not among the types this battery offers" "$EXIT_USAGE"
 
