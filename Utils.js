@@ -88,23 +88,33 @@ function describe(raw) {
   return parseChargeTypes(raw)
 }
 
-// The value that turns conservation mode into `active`.
-//
-// The opposite of what is asked for, so toggling is nextValue(state). Unknown
-// states give null: writing a value derived from a state we could not read would
-// be guessing.
-function nextValue(active) {
-  if (active === true) return VALUE_OFF;
-  if (active === false) return VALUE_ON;
-  return null;
-}
-
 // Whether a value is one this plugin will ever send to the kernel.
 //
-// Only those two exact strings. This runs before pkexec is invoked, so the
-// helper's own check is a second line of defence rather than the only one.
-function isAcceptedValue(value) {
-  return value === VALUE_OFF || value === VALUE_ON;
+// Membership in the battery's own list, with the space/underscore duality the
+// kernel accepts collapsed: "Long Life" and "Long_Life" are the same choice,
+// so both are checked against the listed names the same way. This runs before
+// pkexec is invoked, so the helper's own check is a second line of defence
+// rather than the only one.
+function isAcceptedValue(value, options) {
+  var wanted = normalizeChargeType(value)
+  if (wanted === "") return false
+
+  var list = Array.isArray(options) ? options : []
+  for (var i = 0; i < list.length; i++) {
+    if (normalizeChargeType(list[i]) === wanted) return true
+  }
+  return false
+}
+
+// The one spelling a charge type compares as: whitespace becomes underscores
+// and the edges are trimmed, mirroring the helper's write-side normalisation
+// so the two sides of the pkexec boundary agree.
+function normalizeChargeType(value) {
+  var text = String(value === null || value === undefined ? "" : value)
+  text = text.replace(/[\s]/g, "_")
+  while (text.charAt(0) === "_") text = text.slice(1)
+  while (text.charAt(text.length - 1) === "_") text = text.slice(0, -1)
+  return text
 }
 
 // Which row the panel's cursor lands on for a vertical move. Ours sits below the
@@ -162,8 +172,8 @@ if (typeof module !== "undefined") {
   module.exports = {
     parseChargeTypes: parseChargeTypes,
     describe: describe,
-    nextValue: nextValue,
     isAcceptedValue: isAcceptedValue,
+    normalizeChargeType: normalizeChargeType,
     shouldNotify: shouldNotify,
     moveFocusRow: moveFocusRow,
     hoverClaimsFocus: hoverClaimsFocus,

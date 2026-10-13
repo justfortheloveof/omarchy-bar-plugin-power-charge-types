@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../Utils.js`, "utf8"), ctx);
-const { parseChargeTypes, nextValue, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
+const { parseChargeTypes, isAcceptedValue, describe, shouldNotify, moveFocusRow, hoverClaimsFocus, healthText, ceilingText } = ctx;
 
 // Exactly what bin/lenovo-power-conservation prints for `list`, and the word
 // the panel's own wrapper supplies when the helper is missing.
@@ -92,37 +92,35 @@ test("parseChargeTypes treats silence as not installed", () => {
   }
 });
 
-test("nextValue flips a known state", () => {
-  assert.equal(nextValue(true), "0", "was on, so turn it off");
-  assert.equal(nextValue(false), "1", "was off, so turn it on");
+test("isAcceptedValue admits the canonical listed form", () => {
+  const options = ["Fast", "Standard", "Long_Life"];
+  for (const name of options) {
+    assert.equal(isAcceptedValue(name, options), true, `${name} is what the list spells it`);
+  }
 });
 
-test("nextValue refuses an unknown state", () => {
-  assert.equal(nextValue(null), null);
-  assert.equal(nextValue(undefined), null);
-  assert.equal(nextValue("1"), null, "strings are not booleans here");
-  assert.equal(nextValue(0), null);
+test("isAcceptedValue admits the space variant the kernel also accepts", () => {
+  // The kernel takes "Long Life" and "Long_Life" alike and reads the
+  // underscore form back, so the space variant is the same choice.
+  assert.equal(isAcceptedValue("Long Life", ["Fast", "Standard", "Long_Life"]), true);
+  assert.equal(isAcceptedValue("  Long_Life  ", ["Fast", "Standard", "Long_Life"]), true, "trim first");
+  assert.equal(isAcceptedValue("Fast\n", ["Fast", "Standard", "Long_Life"]), true, "a trailing newline is a space, then trimmed");
 });
 
-test("isAcceptedValue allows only the two exact strings", () => {
-  assert.equal(isAcceptedValue("0"), true);
-  assert.equal(isAcceptedValue("1"), true);
-});
-
-test("isAcceptedValue rejects everything else", () => {
+test("isAcceptedValue rejects everything that is not in the list", () => {
   // This gates the pkexec call, so anything loose here would be loose on the
-  // way to root.
-  const bad = ["", " ", "01", "2", "-1", "0\n", "1 ", true, false, 0, 1, null, undefined, {}, "unknown"];
+  // way to root: a name the battery does not offer is not ours to write.
+  const options = ["Fast", "Standard", "Long_Life"];
+  const bad = ["", " ", "Bypass", "Trickle", "long_life", true, false, 0, 1, null, undefined, {}];
   for (const value of bad) {
-    assert.equal(isAcceptedValue(value), false, `${JSON.stringify(value)} must be rejected`);
+    assert.equal(isAcceptedValue(value, options), false, `${JSON.stringify(value)} must be rejected`);
   }
 });
 
-test("isAcceptedValue only ever admits what nextValue produces", () => {
-  for (const state of [true, false]) {
-    assert.equal(isAcceptedValue(nextValue(state)), true);
-  }
-  assert.equal(isAcceptedValue(nextValue(null)), false);
+test("isAcceptedValue is strict about which list it checks against", () => {
+  assert.equal(isAcceptedValue("Fast", ["Long_Life"]), false, "offered by another battery, not this one");
+  assert.equal(isAcceptedValue("Fast", []), false, "no list, nothing is offered");
+  assert.equal(isAcceptedValue("Fast", undefined), false);
 });
 
 test("shouldNotify stays quiet when the user dismissed the dialog", () => {
