@@ -20,21 +20,21 @@ skip() {
 # ---------------------------------------------------------------------------
 # One file per invocation: `bash -n a b c` parses a and treats b and c as
 # arguments to it, so only the first would ever be checked.
-for script in bin/lenovo-power-conservation install.sh uninstall.sh tools/sync-upstream bin/check bin/check-agent-files; do
+for script in bin/charge-types install.sh uninstall.sh tools/sync-upstream bin/check bin/check-agent-files; do
 	bash -n "$script"
 done
 bin/check-agent-files "$root"
 python3 -c 'import json; json.load(open("manifest.json"))'
-node --test tests/utils.test.cjs tests/helper.test.cjs
+node --test tests/utils.test.cjs tests/charge-types.test.cjs
 
 # ---------------------------------------------------------------------------
-# Fork markers must balance: every `lenovo-conservation: start` its `end`,
+# Fork markers must balance: every `charge-types: start` its `end`,
 # no `end` unmet. Comment-only, so it runs in CI too.
 # ---------------------------------------------------------------------------
 for f in Panel.qml Model.js Utils.js; do
 	awk '
-		/lenovo-conservation: start/ { depth++; next }
-		/lenovo-conservation: end/ {
+		/charge-types: start/ { depth++; next }
+		/charge-types: end/ {
 			if (depth == 0) {
 				printf "  %s:%d: end marker with no matching start\n", FILENAME, FNR > "/dev/stderr"
 				bad = 1
@@ -66,7 +66,7 @@ fi
 # test/shell.d/power-test.sh, so churn there is noise for them too.
 # ---------------------------------------------------------------------------
 pinned=$(sed -n 's/^sha=//p' upstream.lock)
-mirror=${OMARCHY_UPSTREAM_MIRROR:-${TMPDIR:-/tmp}/omarchy-power-lenovo-battery-conservation-upstream.git}
+mirror=${OMARCHY_UPSTREAM_MIRROR:-${TMPDIR:-/tmp}/omarchy-power-charge-types-upstream.git}
 upstream_path=shell/plugins/panels/power
 
 if [ -d "$mirror" ] && git --git-dir="$mirror" cat-file -e "${pinned}^{commit}" 2>/dev/null; then
@@ -105,10 +105,10 @@ if [ -d "$mirror" ] && git --git-dir="$mirror" cat-file -e "${pinned}^{commit}" 
 			# Blank lines are formatting, not content.
 			if (line ~ /^[[:space:]]*$/) { n++; next }
 			covered = 0
-			if (line ~ /lenovo-conservation: start ----[[:space:]]*$/) { open_at = n; covered = 1 }
-			else if (line ~ /lenovo-conservation: end ----[[:space:]]*$/) { open_at = 0; covered = 1 }
+			if (line ~ /charge-types: start ----[[:space:]]*$/) { open_at = n; covered = 1 }
+			else if (line ~ /charge-types: end ----[[:space:]]*$/) { open_at = 0; covered = 1 }
 			else if (open_at > 0) covered = 1
-			else if (line ~ /[[:space:]]\/\/ lenovo-conservation[[:space:]]*$/) covered = 1
+			else if (line ~ /[[:space:]]\/\/ charge-types[[:space:]]*$/) covered = 1
 			if (!covered) { printf "  Panel.qml:%d: %s\n", n, line; bad = 1 }
 			n++
 			next

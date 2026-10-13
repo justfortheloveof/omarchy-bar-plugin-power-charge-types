@@ -285,7 +285,7 @@ main() {
 	UPSTREAM_BRANCH=$(lock_value branch)
 
 	# Scratch state is disposable. Set OMARCHY_UPSTREAM_MIRROR to keep it.
-	MIRROR=${OMARCHY_UPSTREAM_MIRROR:-${TMPDIR:-/tmp}/omarchy-power-lenovo-battery-conservation-upstream.git}
+	MIRROR=${OMARCHY_UPSTREAM_MIRROR:-${TMPDIR:-/tmp}/omarchy-power-charge-types-upstream.git}
 	WORK=$(mktemp -d)
 	trap 'rm -rf "$WORK"' EXIT
 
@@ -348,11 +348,11 @@ main() {
 	# in bin/check, so gate them here, the way the check above gates conflict markers.
 	for name in "${TRACKED[@]}"; do
 		awk '
-			/lenovo-conservation: start/ { depth++; next }
-			/lenovo-conservation: end/ { if (depth == 0) exit 1; depth-- }
+			/charge-types: start/ { depth++; next }
+			/charge-types: end/ { if (depth == 0) exit 1; depth-- }
 			END { if (depth != 0) exit 1 }
 		' "$name" ||
-			die "$name has unbalanced fork markers - a 'lenovo-conservation: start' without its 'end', or an 'end' with no start. Balance them, then re-run."
+			die "$name has unbalanced fork markers - a 'charge-types: start' without its 'end', or an 'end' with no start. Balance them, then re-run."
 	done
 
 	merge
