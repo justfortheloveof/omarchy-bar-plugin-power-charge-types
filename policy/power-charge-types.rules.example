@@ -1,23 +1,24 @@
 // Optional: grant a permanent, passwordless polkit authorisation for the
-// Lenovo battery conservation helper, so a burst of toggles never asks for
+// charge-types helper, so a burst of charge-type changes never asks for
 // your password at all.
 //
-// Source:  https://github.com/justfortheloveof/omarchy-bar-plugin-power-lenovo-battery-conservation
+// Source:  https://github.com/justfortheloveof/omarchy-bar-plugin-power-charge-types
 // License: MIT, the same terms as Omarchy itself.
 //
 // If you are reading this in /etc/polkit-1/rules.d, you copied it from that
 // repository. Nothing here is installed by install.sh, and nothing needs it:
-// without it every toggle authenticates, because pkexec uses the stock
+// without it every change authenticates, because pkexec uses the stock
 // org.freedesktop.policykit.exec action, which is `auth_admin`.
 // Copy it in only if you accept a permanent passwordless grant for this one
 // write:
 //
-//   sudo cp policy/lenovo-power-conservation.rules.example \
-//        /etc/polkit-1/rules.d/50-lenovo-power-conservation.rules
+//   sudo cp policy/power-charge-types.rules.example \
+//        /etc/polkit-1/rules.d/50-power-charge-types.rules
 //   omarchy-restart-shell
 //
 // To undo that, delete the file: the passwordless grant is scoped to
-// one action id and one exact command line, and nothing else is touched.
+// one action id and one command whose argument is a closed vocabulary of
+// charge-type names, and nothing else is touched.
 // The rule only turns AUTH_ADMIN into YES for the installed helper;
 // every other program keeps the stock policy and still prompts.
 
@@ -25,10 +26,10 @@ polkit.addRule(function (action, subject) {
   if (action.id !== "org.freedesktop.policykit.exec") return;
 
   // pkexec reports what it was asked to run. Match only our helper, and only
-  // the one write it is allowed to perform.
+  // `set` with one of the charge types the power-supply ABI defines.
   var command = action.lookup("command_line");
   if (typeof command !== "string") return;
-  if (!/^\/usr\/local\/libexec\/lenovo-power\/conservation set [01]$/.test(command)) return;
+  if (!/^\/usr\/local\/libexec\/io\.github\.justfortheloveof\.power-charge-types\/charge-types set (Unknown\|N\/A\|Trickle\|Fast\|Standard\|Adaptive\|Custom\|Long_Life\|Bypass)$/.test(command)) return;
 
   // Local session, and an administrator authenticating it. `subject.local`
   // keeps a grant made at this machine from being honoured over ssh.
