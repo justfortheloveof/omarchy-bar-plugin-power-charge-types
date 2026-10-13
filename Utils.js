@@ -18,6 +18,10 @@ var UNKNOWN = "unknown"
 // that is not a failure.
 var DISMISSED = 126
 
+// The charge type the kernel spells for conservation: it stops charging early,
+// at a firmware-defined cap, so the ceiling readout can hedge a typical value.
+var LONG_LIFE = "Long_Life"
+
 // Whether a write that did not succeed is worth telling the user about. 126 is
 // a dismissal, not a fault: nobody typed a password on purpose, so announcing
 // it would be scolding someone. Any other non-zero exit is worth a word, because
@@ -205,7 +209,7 @@ function healthText(raw) {
 // firmware-defined (60-80%), not something we read back.
 function ceilingText(threshold, activeType) {
   if (threshold) return String(threshold)
-  if (activeType === "Long_Life") return "~80%"
+  if (activeType === LONG_LIFE) return "~80%"
   return "-"
 }
 
