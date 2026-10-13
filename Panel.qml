@@ -23,35 +23,51 @@ Panel {
   property int profileIndex: 0
   property bool cursorActive: false
   // ---- lenovo-conservation: start ----
-  // The installed helper is the only thing that touches the attribute. Every flag
-  // below starts pessimistic, so a probe that never runs leaves a plainly
-  // unusable row rather than a toggle that looks live.
-  readonly property string conservationHelper: "/usr/local/libexec/lenovo-power/conservation"
-  property bool conservationInstalled: false
-  property bool conservationSupported: false
-  property bool conservationKnown: false
-  property bool conservationActive: false
-  property bool conservationBusy: false
+  // The installed helper is the only thing that touches the charge_types
+  // attribute. Every flag below starts pessimistic, so a probe that never runs
+  // leaves a plainly unusable row rather than a dropdown that looks live.
+  readonly property string chargeTypesHelper: "/usr/local/libexec/lenovo-power/conservation"
+  property bool chargeTypesInstalled: false
+  property bool chargeTypesSupported: false
+  property bool chargeTypesKnown: false
+  property bool chargeTypesBusy: false
+  // The active type as the attribute read it, "" while unreadable. A string the
+  // dropdown and the ceiling readout both consume, not a boolean: the battery's
+  // state is a name, and a name is what the write sends back.
+  property string chargeTypesActiveType: ""
+  // The battery's own listed names, brackets stripped: the write's gate and the
+  // dropdown's source. Empty while the list was never read.
+  property var chargeTypesOptions: []
+  // The same names in the kit's { value, label } option shape: the label is the
+  // type with underscores as spaces, so Long_Life reads "Long Life".
+  readonly property var chargeTypesOptionList: {
+    var out = []
+    for (var i = 0; i < chargeTypesOptions.length; i++) {
+      var name = chargeTypesOptions[i]
+      out.push({ value: name, label: String(name).replace(/_/g, " ") })
+    }
+    return out
+  }
   // Held until the write process exits: whether to say anything depends on an
   // exit code we only learn at the end.
-  property var conservationErrors: []
-  // Cursor state, in the panel's own idiom: true means the cursor is on our row
-  // instead of the profiles. A boolean rather than a shared index, which
-  // updateProfiles re-clamps on every refresh.
-  property bool conservationFocused: false
+  property var chargeTypesErrors: []
+  // The row cursor over the rows below the stats, in display order: -1 none,
+  // 0 the charge row, 1 the profile row. An index rather than the old boolean,
+  // because the walk now moves *between* the two rows, not just onto ours.
+  property int cursorRow: -1
   // The Battery health row's value, from energy_full / energy_full_design.
   // Starts pessimistic: a read that never ran shows the dash, not a stale number.
   property string batteryHealthText: "—"
-  // Only a toggle whose current value we actually read may be flipped.
-  readonly property bool conservationReady:
-    conservationInstalled && conservationSupported && conservationKnown && !conservationBusy
-  readonly property string conservationDescription: {
-    // A disabled row still renders as an ordinary off switch, so each not-ready
-    // state has to say in text whether "off" is a fact or a guess.
-    if (!conservationInstalled) return "Current mode unknown. Run sudo ./install.sh in the plugin directory to enable changes."
-    if (!conservationSupported) return "No Lenovo conservation_mode attribute here, so conservation mode is always off."
-    if (!conservationKnown) return "Current mode unknown: the attribute reported a value this plugin does not recognise."
-    return "Stop charging around 80% to reduce long-term wear."
+  // Only a dropdown whose current value we actually read may be opened.
+  readonly property bool chargeTypesReady:
+    chargeTypesInstalled && chargeTypesSupported && chargeTypesKnown && !chargeTypesBusy
+  readonly property string chargeTypesDescription: {
+    // A disabled row still renders as an ordinary row, so each not-ready state
+    // has to say in text whether what it shows is a fact or a guess.
+    if (!chargeTypesInstalled) return "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes."
+    if (!chargeTypesSupported) return "No charge-type control on this battery, so the type cannot be changed."
+    if (!chargeTypesKnown) return "Current charge type unknown: the battery reported a value this plugin does not recognise."
+    return "Long Life stops charging early to reduce battery wear."
   }
   // ---- lenovo-conservation: end ----
   readonly property bool showPercentage: setting("showPercentage", false) === true
@@ -98,52 +114,54 @@ Panel {
 
   // ---- lenovo-conservation: start ----
   // Fold whatever the helper printed into the flags. Anything unreadable leaves
-  // conservationKnown false, which keeps the row disabled rather than showing
-  // "off" for a state nobody read.
-  function ingestConservationStatus(raw) {
+  // chargeTypesKnown false, which keeps the row disabled rather than showing a
+  // type nobody read.
+  function ingestChargeTypesStatus(raw) {
     var state = Utils.describe(raw)
-    root.conservationInstalled = state.installed
-    root.conservationSupported = state.supported
-    root.conservationKnown = state.supported && state.active !== null
-    root.conservationActive = state.active === true
+    root.chargeTypesInstalled = state.installed
+    root.chargeTypesSupported = state.supported
+    root.chargeTypesKnown = state.known
+    root.chargeTypesActiveType = state.activeType === null ? "" : state.activeType
+    root.chargeTypesOptions = state.options
   }
 
-  function refreshConservation() {
-    if (!conservationProbe.running) conservationProbe.running = true
+  function refreshChargeTypes() {
+    if (!chargeTypesProbe.running) chargeTypesProbe.running = true
   }
 
   // The value asked for, or "" if nothing was. The write is asynchronous: pkexec
-  // prompts, so the state on screen only changes once conservationAction reports
+  // prompts, so the state on screen only changes once chargeTypesAction reports
   // back.
-  function requestConservationToggle() {
-    if (!root.conservationReady) return ""
+  function requestSetChargeType(value) {
+    if (!root.chargeTypesReady) return ""
 
-    var value = Utils.nextValue(root.conservationActive)
-    if (!Utils.isAcceptedValue(value)) return ""
+    if (!Utils.isAcceptedValue(value, root.chargeTypesOptions)) return ""
 
-    root.conservationBusy = true
-    conservationAction.command = ["pkexec", root.conservationHelper, "set", value]
-    conservationAction.running = true
+    root.chargeTypesBusy = true
+    chargeTypesAction.command = ["pkexec", root.chargeTypesHelper, "set", value]
+    chargeTypesAction.running = true
     return value
   }
 
-  // Vertical navigation: walk between the profile row and ours, skipping ours
-  // when it is not ready. dx never reaches here, so left/right stay on profiles.
-  function moveFocusRow(delta) {
-    conservationFocused = Utils.moveFocusRow(
-      conservationFocused,
+  // Vertical navigation: walk between the charge row and the profile row,
+  // skipping whichever is unavailable. dx never reaches here, so left/right
+  // stay on profiles.
+  function moveRowFocus(delta) {
+    cursorRow = Utils.moveRowFocus(
+      cursorRow,
       delta,
-      root.conservationReady,
-      root.profiles.length > 0
+      [root.chargeTypesReady, root.profiles.length > 0]
     )
   }
 
   // Return/Space on whichever row the cursor is on; the key dispatcher calls
-  // this rather than activateSelectedProfile.
+  // this rather than activateSelectedProfile. Row 0 opens the dropdown (whose
+  // popup then owns the keys until it closes); row 1 acts on the selected
+  // profile; an armed cursor on no row does nothing.
   function activateCursor() {
     if (!root.cursorActive) return
-    if (root.conservationFocused) root.requestConservationToggle()
-    else root.activateSelectedProfile()
+    if (root.cursorRow === 0) root.chargeTypesDropdown.open()
+    else if (root.cursorRow === 1) root.activateSelectedProfile()
   }
   // ---- lenovo-conservation: end ----
 
@@ -225,9 +243,9 @@ Panel {
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
     // ---- lenovo-conservation: start ----
-    root.refreshConservation()
+    root.refreshChargeTypes()
     // ---- lenovo-conservation: end ----
-  }
+  } // lenovo-conservation
 
   // ---- lenovo-conservation: start ----
   // The health read is one-shot per panel session: the value barely moves,
@@ -284,10 +302,10 @@ Panel {
     // ---- lenovo-conservation: start ----
     // The value asked for, not the result: pkexec prompts, so the write has not
     // happened yet when this replies.
-    function toggleConservation(): string { return root.requestConservationToggle() }
-    function conservationStatus(): string {
-      if (!root.conservationKnown) return "unknown"
-      return root.conservationActive ? "on" : "off"
+    function setChargeType(type): string { return root.requestSetChargeType(type) }
+    function chargeTypeStatus(): string {
+      if (!root.chargeTypesKnown) return "unknown"
+      return root.chargeTypesActiveType
     }
     // ---- lenovo-conservation: end ----
   }
@@ -306,7 +324,7 @@ Panel {
       // ---- lenovo-conservation: start ----
       // Reset with cursorActive: a row focused in the last session would
       // otherwise light on the first key press after reopening.
-      conservationFocused = false
+      cursorRow = -1
       // One-shot: read the health files once per panel session.
       if (!healthProc.running) healthProc.running = true
       // ---- lenovo-conservation: end ----
@@ -358,36 +376,36 @@ Panel {
   // passed as an argument, and the string itself is fixed, so nothing the
   // caller controls reaches the shell.
   Process {
-    id: conservationProbe
-    command: ["sh", "-c", "if [ -x \"$0\" ]; then exec \"$0\" status; else echo not-installed; fi", root.conservationHelper]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.ingestConservationStatus(text) }
+    id: chargeTypesProbe
+    command: ["sh", "-c", "if [ -x \"$0\" ]; then exec \"$0\" list; else echo not-installed; fi", root.chargeTypesHelper]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.ingestChargeTypesStatus(text) }
   }
 
   Process {
-    id: conservationAction
-    stdout: SplitParser { onRead: function(line) { root.ingestConservationStatus(line) } }
+    id: chargeTypesAction
+    stdout: SplitParser { onRead: function(line) { root.ingestChargeTypesStatus(line) } }
     // Collected rather than announced on sight: whether to speak at all depends
     // on the exit code, and Utils.shouldNotify decides that.
     stderr: SplitParser {
-      onRead: function(line) { root.conservationErrors.push(String(line)) }
+      onRead: function(line) { root.chargeTypesErrors.push(String(line)) }
     }
     onExited: function(exitCode) {
-      var why = root.conservationErrors
-      root.conservationErrors = []
+      var why = root.chargeTypesErrors
+      root.chargeTypesErrors = []
 
       if (Utils.shouldNotify(exitCode, why)) {
         Quickshell.execDetached([
           "omarchy-notification-send",
           "-g", "󰂅",
-          "Battery Conservation",
+          "Charge type",
           why.filter(function(line) { return line.trim() !== "" }).join("\n")
         ])
       }
 
       // Re-read rather than trust the write: the helper verifies it, but the
       // state on screen should come from the attribute, not from what we asked.
-      root.conservationBusy = false
-      root.refreshConservation()
+      root.chargeTypesBusy = false
+      root.refreshChargeTypes()
     }
   }
   // ---- lenovo-conservation: end ----
@@ -466,10 +484,12 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      // Suspends the panel's dispatcher while the dropdown's popup owns the keys. // lenovo-conservation
+      blocked: chargeTypesDropdown.popupOpen // lenovo-conservation
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         if (dx !== 0) root.selectProfileByDelta(dx)
-        else if (dy !== 0) root.moveFocusRow(dy) // lenovo-conservation
+        else if (dy !== 0) root.moveRowFocus(dy) // lenovo-conservation
       }
       onActivateRequested: root.activateCursor() // lenovo-conservation
       onCloseRequested: root.close()
@@ -608,7 +628,7 @@ Panel {
               label: root.chargeThresholdActive ? "Charge limit" : (root.discharging ? "Time left" : "Time to full")
               // ---- lenovo-conservation: start ----
               value: root.chargeThresholdActive
-                ? Utils.ceilingText(root.batteryInfo.threshold, root.conservationActive)
+                ? Utils.ceilingText(root.batteryInfo.threshold, root.chargeTypesActiveType)
                 : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
               // ---- lenovo-conservation: end ----
             }
@@ -618,6 +638,59 @@ Panel {
             }
           }
         }
+
+        // ---- lenovo-conservation: start ----
+        // ---------- Charge profile picker ----------
+        PanelSeparator {
+          foreground: root.bar.foreground
+        }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(10)
+
+          PanelSectionHeader {
+            text: "CHARGE PROFILE"
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+          }
+
+          Dropdown {
+            id: chargeTypesDropdown
+            width: parent.width
+            label: "Charge type"
+            value: root.chargeTypesActiveType
+            options: root.chargeTypesOptionList
+            enabled: root.chargeTypesReady
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            // Same cursor flag the profile Buttons use, which is all the
+            // highlight needed: Dropdown's _hot is
+            // hasCursor || mouse hover, same as Button's.
+            hasCursor: root.cursorActive && root.cursorRow === 0
+            onHovered: function(h) {
+              if (!h || !Utils.hoverClaimsFocus(root.chargeTypesReady)) return
+              root.cursorActive = true
+              root.cursorRow = 0
+            }
+            // The popup's selection is the write request; the pkexec round-trip
+            // and the re-probe happen in requestSetChargeType.
+            onChanged: function(value) { root.requestSetChargeType(value) }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            visible: root.chargeTypesDescription !== ""
+            text: root.chargeTypesDescription
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            width: parent.width
+          }
+        }
+        // ---- lenovo-conservation: end ----
 
         // ---------- Power profile picker ----------
         PanelSeparator {
@@ -659,42 +732,19 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && !root.conservationFocused && root.profileIndex === index // lenovo-conservation
+                hasCursor: root.cursorActive && root.cursorRow === 1 && root.profileIndex === index // lenovo-conservation
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
                     root.profileIndex = index
-                    root.conservationFocused = false // lenovo-conservation
+                    root.cursorRow = 1 // lenovo-conservation
                   }
                 }
               }
             }
           }
 
-          // ---- lenovo-conservation: start ----
-          Toggle {
-            width: parent.width
-            label: "Conservation Mode"
-            description: root.conservationDescription
-            foreground: root.bar.foreground
-            accent: Color.accent
-            fontFamily: root.bar.fontFamily
-            titleSize: Style.font.body
-            checked: root.conservationActive
-            enabled: root.conservationReady
-            // Same cursor flag the profile Buttons use, which is all the
-            // highlight needed: Toggle's _hot is
-            // hasCursor || mouse.containsMouse, same as Button's.
-            hasCursor: root.cursorActive && root.conservationFocused
-            onHovered: function(h) {
-              if (!h || !Utils.hoverClaimsFocus(root.conservationReady)) return
-              root.cursorActive = true
-              root.conservationFocused = true
-            }
-            onClicked: root.requestConservationToggle()
-          }
-          // ---- lenovo-conservation: end ----
         }
       }
     }
