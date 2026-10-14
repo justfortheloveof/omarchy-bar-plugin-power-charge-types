@@ -29,7 +29,7 @@ polkit.addRule(function (action, subject) {
   // `set` with one of the charge types the power-supply ABI defines.
   var command = action.lookup("command_line");
   if (typeof command !== "string") return;
-  if (!/^\/usr\/local\/libexec\/io\.github\.justfortheloveof\.power-charge-types\/charge-types set (Unknown\|N\/A\|Trickle\|Fast\|Standard\|Adaptive\|Custom\|Long_Life\|Bypass)$/.test(command)) return;
+  if (!/^\/usr\/local\/libexec\/io\.github\.justfortheloveof\.power-charge-types\/charge-types set (Unknown|N\/A|Trickle|Fast|Standard|Adaptive|Custom|Long_Life|Bypass)$/.test(command)) return;
 
   // Local session, and an administrator authenticating it. `subject.local`
   // keeps a grant made at this machine from being honoured over ssh.
