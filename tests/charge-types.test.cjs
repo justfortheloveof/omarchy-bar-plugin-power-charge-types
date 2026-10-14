@@ -417,7 +417,7 @@ test("set with no qualifying battery reports the resolution failure", (t) => {
 // install.sh never made.
 // ---------------------------------------------------------------------------
 
-test("the helper, install.sh, uninstall.sh, and Panel.qml agree on the installed path", () => {
+test("the helper, install.sh, uninstall.sh, Panel.qml, and the polkit rule agree on the installed path", () => {
   const dir = "/usr/local/libexec/io.github.justfortheloveof.power-charge-types";
   const full = `${dir}/charge-types`;
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -426,6 +426,7 @@ test("the helper, install.sh, uninstall.sh, and Panel.qml agree on the installed
   const install = fs.readFileSync(`${__dirname}/../install.sh`, "utf8");
   const uninstall = fs.readFileSync(`${__dirname}/../uninstall.sh`, "utf8");
   const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
+  const rules = fs.readFileSync(`${__dirname}/../policy/power-charge-types.rules.example`, "utf8");
 
   assert.match(helper, new RegExp(`^readonly PACKAGED_PATH=${esc(full)}$`, "m"), "the helper names the installed path");
   assert.match(install, new RegExp(`^readonly PACKAGED_DIR=${esc(dir)}$`, "m"), "install.sh names the installed directory");
@@ -433,4 +434,19 @@ test("the helper, install.sh, uninstall.sh, and Panel.qml agree on the installed
   assert.match(uninstall, new RegExp(`^readonly PACKAGED_DIR=${esc(dir)}$`, "m"), "uninstall.sh removes the installed directory");
   assert.match(uninstall, /^readonly PACKAGED_PATH="\$PACKAGED_DIR\/charge-types"$/m, "uninstall.sh removes the helper from it");
   assert.match(panel, new RegExp(`chargeTypesHelper: "${esc(full)}"`), "Panel.qml invokes the installed copy");
+  // The rules file spells the path already regex-escaped (slashes and dots
+  // backslashed in its own pattern), so the text to match literally *is* that
+  // escaped form - escape it once more, and the pattern matches the file.
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  assert.match(rules, new RegExp(`${escRe(escRe(full))} set `), "the polkit rule matches the installed path");
+});
+
+// The rules file runs in polkitd's Duktape engine, whose regex dialect is not
+// the one Node (V8) implements: Duktape parses `\|` as a *literal* pipe, so an
+// "escaped" alternation matches a string no battery will ever report and the
+// rule silently grants nothing - the stock policy then prompts on every write.
+// Node cannot catch that, so the guard is textual: no backslash-pipe, ever.
+test("the polkit rule contains no escaped pipes (Duktape reads \\| as a literal pipe)", () => {
+  const rules = fs.readFileSync(`${__dirname}/../policy/power-charge-types.rules.example`, "utf8");
+  assert.doesNotMatch(rules, /\\\|/, "no \\| in the rules file: Duktape would turn the alternation into a literal pipe and the rule would match nothing");
 });
