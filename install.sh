@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Install the root-owned half of the power-charge-types plugin. The panel reads
-# the charge type unprivileged, so it works the moment the plugin is enabled;
-# writing it needs root, and the helper copied here is the only thing elevated.
+# Install the root-owned helper used to read and write the current charge type.
+# Reading through the helper is unprivileged; writing it needs root, and this is
+# the only thing elevated.
 #
 #   sudo ./install.sh
 #   sudo ./uninstall.sh    # to remove it again

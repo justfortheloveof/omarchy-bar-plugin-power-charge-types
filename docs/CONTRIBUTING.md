@@ -221,7 +221,7 @@ The reasoning behind the root-owned helper lives in the README's *How the privil
 If you touch `bin/charge-types`, `install.sh`, `uninstall.sh` or `policy/`, read that section first. Two invariants the tests currently only partly cover, and which you should not weaken:
 
 - The helper never re-executes itself. `set` requires already being root, so a copy in a user-writable directory cannot elevate itself.
-- `install.sh` must not copy the rules example into `/etc/polkit-1`. Nothing should persist in the system's authorisation policy unless a person asked for it. There is a test asserting exactly that.
+- `install.sh` must not copy the rules example into `/etc/polkit-1`. Nothing should persist in the system's authorisation policy unless a person asked for it.
 
 ## Not allowed in this tree
 

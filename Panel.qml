@@ -357,12 +357,19 @@ Panel {
   }
 
   // ---- charge-types: start ----
-  // Reading needs no privilege. `2>/dev/null` keeps a "No such file" from a
-  // machine without BAT0 out of the shell log on every read; the string is
-  // fully fixed, so nothing caller-controlled reaches the shell.
+  // Reading is unprivileged. Walk batteries in shell-glob order, leaving
+  // unusable pairs blank for Utils.healthText() to skip. The paths are fixed,
+  // so no caller-controlled text reaches the shell.
   Process {
     id: healthProc
-    command: ["sh", "-c", "cat /sys/class/power_supply/BAT0/energy_full /sys/class/power_supply/BAT0/energy_full_design 2>/dev/null"]
+    command: ["sh", "-c",
+      "for supply in /sys/class/power_supply/*; do " +
+      "type=$(cat \"$supply/type\" 2>/dev/null) || continue; " +
+      "[ \"$type\" = Battery ] || continue; " +
+      "full=$(cat \"$supply/energy_full\" 2>/dev/null) || full=; " +
+      "design=$(cat \"$supply/energy_full_design\" 2>/dev/null) || design=; " +
+      "printf '%s %s\\n' \"$full\" \"$design\"; " +
+      "done"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateHealth(text) }
   }
   // ---- charge-types: end ----

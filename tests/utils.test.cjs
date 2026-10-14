@@ -263,24 +263,31 @@ test("hoverClaimsFocus follows whether the row could be activated", () => {
   assert.equal(hoverClaimsFocus(false), false);
 });
 
-// healthText: the text for the Battery health row, from the combined output
-// of `cat .../energy_full .../energy_full_design`. String literals only - no
-// /sys access, so it runs on any machine.
+// healthText: the text for the Battery health row, from ordered pairs of
+// `energy_full` / `energy_full_design` values. String literals only - no /sys
+// access, so it runs on any machine.
 test("healthText renders remaining capacity as a one-decimal percentage", () => {
-  assert.equal(healthText("44650000\n56000000\n"), "79.7%");
+  assert.equal(healthText("44650000 56000000\n"), "79.7%");
+});
+
+test("healthText uses the first battery with a valid health pair", () => {
+  assert.equal(
+    healthText("banana 56000000\n44650000 0\n44650000 56000000\n56000000 56000000\n"),
+    "79.7%"
+  );
 });
 
 test("healthText handles output without a trailing newline", () => {
-  assert.equal(healthText("10000000\n10000000"), "100.0%");
+  assert.equal(healthText("10000000 10000000"), "100.0%");
 });
 
 test("healthText renders full > design as the computed value, not an error", () => {
   // A battery replaced with a bigger one reports more than its design figure.
-  assert.equal(healthText("60000000\n56000000"), "107.1%");
+  assert.equal(healthText("60000000 56000000"), "107.1%");
 });
 
 test("healthText is a dash when one of the two files is missing", () => {
-  assert.equal(healthText("44650000\n"), "—");
+  assert.equal(healthText("44650000"), "—");
 });
 
 test("healthText is a dash when nothing was read", () => {
@@ -291,15 +298,15 @@ test("healthText is a dash when nothing was read", () => {
 });
 
 test("healthText is a dash for non-numeric output", () => {
-  assert.equal(healthText("banana\n56000000"), "—");
+  assert.equal(healthText("banana 56000000"), "—");
 });
 
 test("healthText is a dash when the design capacity is zero", () => {
-  assert.equal(healthText("100\n0"), "—");
+  assert.equal(healthText("100 0"), "—");
 });
 
 test("healthText is a dash for more than two tokens", () => {
-  assert.equal(healthText("100\n200\n300"), "—");
+  assert.equal(healthText("100 200 300"), "—");
 });
 
 // ceilingText: the "Charge limit" row's value. A real upstream threshold wins;

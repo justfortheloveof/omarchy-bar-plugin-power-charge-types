@@ -185,21 +185,24 @@ function hoverClaimsFocus(available) {
   return available === true
 }
 
-// The text for the Battery health row, from the combined output of
-// `cat .../energy_full .../energy_full_design`: two lines of µWh
-// integers, in that order. Only the ratio is used, so units never
-// matter. Anything unreadable is the dash, matching the "Charge
-// cycles" fallback: the row says "not measurable", not "0%".
+// The text for the Battery health row, from ordered `energy_full` /
+// `energy_full_design` pairs, one battery per line. Only the ratio is used, so
+// units never matter. Skip batteries with unreadable or invalid values and use
+// the first measurable pair. If none is measurable, show the dash, matching
+// the "Charge cycles" fallback: the row says "not measurable", not "0%".
 function healthText(raw) {
-  // The trailing newline in `cat` output splits to an empty token; drop
-  // empties before counting, or a healthy battery would read as "—".
-  var tokens = String(raw || "").split(/\s+/).filter(function (t) { return t })
-  var full = Number(tokens[0])
-  var design = Number(tokens[1])
-  if (tokens.length !== 2) return "—"
-  if (!isFinite(full) || !isFinite(design)) return "—"
-  if (full < 0 || design <= 0) return "—"
-  return (full / design * 100).toFixed(1) + "%"
+  var candidates = String(raw || "").split(/\r?\n/)
+  for (var i = 0; i < candidates.length; i++) {
+    var tokens = candidates[i].split(/\s+/).filter(function (t) { return t })
+    if (tokens.length !== 2) continue
+
+    var full = Number(tokens[0])
+    var design = Number(tokens[1])
+    if (!isFinite(full) || !isFinite(design)) continue
+    if (full < 0 || design <= 0) continue
+    return (full / design * 100).toFixed(1) + "%"
+  }
+  return "—"
 }
 
 // The "Charge limit" row's value. A real upstream threshold wins: the user
