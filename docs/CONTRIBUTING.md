@@ -2,70 +2,41 @@
 
 ## Where things live
 
-| Path | |
+| Path | Purpose |
 | --- | --- |
-| `Panel.qml` | the forked power panel: installed upstream plus our additions |
-| `Model.js` | upstream, unchanged, and must stay that way |
-| `Utils.js` | the panel's shared logic: charge-type state, and the battery-health rendering |
-| `manifest.json` | plugin id, `clonedFrom: omarchy.power` |
-| `bin/charge-types` | the only thing that runs as root |
-| `install.sh`, `uninstall.sh` | one-time privileged setup, and its removal; `uninstall.sh` also offers to remove the polkit rule |
-| `policy/power-charge-types.rules.example` | optional passwordless grant, never installed automatically; copied by hand to `/etc/polkit-1/rules.d/50-power-charge-types.rules` |
-| `upstream.lock` | pinned merge base and fetch coordinates |
-| `tools/sync-upstream` | the three-way merge against upstream |
-| `tests/` | `utils.test.cjs` (the shared logic) and `charge-types.test.cjs` (the helper) |
+| `Panel.qml` | Upstream power panel plus marked fork additions |
+| `Model.js` | Upstream file; keep byte-identical |
+| `Utils.js` | Charge-type state and battery-health rendering |
+| `manifest.json` | Plugin metadata and `clonedFrom: omarchy.power` |
+| `bin/charge-types` | Privileged helper |
+| `install.sh`, `uninstall.sh` | Install/remove helper; uninstall offers to remove the polkit rule |
+| `policy/power-charge-types.rules.example` | Optional, manually installed passwordless grant |
+| `upstream.lock`, `tools/sync-upstream` | Pinned merge base and sync workflow |
+| `tests/` | `utils.test.cjs` and `charge-types.test.cjs` |
 
 ## Relationship to upstream
 
-`Panel.qml` and `Model.js` are a copy of `shell/plugins/panels/power/` from [basecamp/omarchy][omarchy]. `Model.js` is unchanged; `Panel.qml` is the installed omarchy's panel plus the charge-type section. `manifest.json` is the only other upstream file this fork changes. `Utils.js`, `bin/`, `policy/` and `tests/` are new.
+`Panel.qml` and `Model.js` come from [`basecamp/omarchy`][omarchy]'s `shell/plugins/panels/power/`. `Model.js` stays unchanged; `Panel.qml` contains marked additions and a few necessary edits. `manifest.json` is the only other changed upstream file; `Utils.js`, `bin/`, `policy/`, and `tests/` are new.
 
-`manifest.json` declares `omarchy.clonedFrom: omarchy.power`, which is how Omarchy lets a plugin replace a built-in one. A panel builds its own contents inline; there is no API for another plugin to add a section to one, and `clonedFrom` replaces the original rather than layering on top of it. The alternative to forking is a separate bar widget with its own panel and IPC target, which sits beside the Power panel instead of inside it.
-
-`Panel.qml` keeps `moduleName` and `ipcTarget` at `omarchy.power` on purpose: `clonedFrom` is what routes IPC and the bar slot, so rewriting those two identifiers would detach the widget from its place in the bar and break `omarchy-shell omarchy.power`.
+`manifest.json`'s `omarchy.clonedFrom: omarchy.power` makes this plugin replace the built-in panel. Panels have no API for another plugin to add a section, and `clonedFrom` does not layer panels. Keep `moduleName` and `ipcTarget` as `omarchy.power`; changing them breaks the bar slot and `omarchy-shell omarchy.power` IPC.
 
 [omarchy]: https://github.com/basecamp/omarchy
 
 ## Keeping `Panel.qml` mergeable
 
-`Panel.qml` is upstream's. Everything this fork adds is an insertion, never an edit of a line upstream owns, and every change is marked, so the fork's delta is visible at a glance and checked by machine:
+Treat `Panel.qml` as upstream-owned: add code in marked insertions, not by changing upstream lines. `git merge-file` treats markers as comments, so an upstream edit can still merge inside a fence; markers make the delta visible but do not protect it.
 
-- **An inserted block** is fenced at both ends:
+- Fence each inserted block with `// ---- charge-types: start ----` and `// ---- charge-types: end ----`.
+- Add `// charge-types` to every edited upstream line.
+- Add new functions, processes, and sections rather than reformatting, reordering, or tidying upstream code; overlapping edits conflict on every sync.
 
-  ```qml
-  // ---- charge-types: start ----
-  Process {
-    id: chargeTypesProbe
-    ...
-  }
-  // ---- charge-types: end ----
-  ```
+The only intentional upstream-line edits are keyboard-cursor hooks (`onMoveRequested`, `onActivateRequested`, the key catcher's `blocked`, and the profile button's `hasCursor` / `onHovered`), `refresh()`'s closing brace for the fenced probe hook, and the battery `InfoPair` replaced by the health row. Any new changed line also needs a tail marker. The coverage check rejects unmarked changes.
 
-- **An edited line** - upstream's line, changed - carries a tail marker:
+`Model.js` must stay byte-identical; upstream tests it in `test/shell.d/power-test.sh`. `manifest.json` cannot carry comment markers, so review its metadata delta in the diff. `Utils.js` is new and wholly fork-owned.
 
-  ```qml
-  onActivateRequested: root.activateCursor() // charge-types
-  ```
+`bin/check` checks that fences balance and every `Panel.qml` addition against the pinned base is fenced or tail-marked. `tools/sync-upstream` also rejects unbalanced fences.
 
-The fence is demarcation, not protection. `git merge-file` merges by line and treats the markers as ordinary comments, so an upstream change *can* land inside a fence and auto-merge there. The rules below are what keep merges clean; the markers make the result legible.
-
-The merge is clean whenever the two sides do not share a line, so:
-
-- Adding a whole new `Process { }`, function, or panel section is free.
-- Changing a line upstream owns costs a conflict every time.
-- Reformatting, reordering, or tidying upstream code costs a conflict forever and buys nothing.
-
-Do not reformat `Model.js` unless a feature needs it. Upstream tests it in `test/shell.d/power-test.sh`, so churn there makes future merges noisy.
-
-The only edits of lines upstream owns are the keyboard-cursor ones: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, the key catcher's `blocked` line (suspended while the dropdown's popup owns the keys), and the profile `Button`'s `hasCursor` and `onHovered`. A row that is not ours must not light, and the cursor must walk *between* rows, which cannot be expressed from outside the components that draw it. Two more lines are edited for non-cursor reasons: `refresh()`'s closing brace (it carries the tail marker because our probe hook is fenced inside the function) and the battery `InfoPair` line, which the health row replaces. Each such line carries a tail marker, and so must any you add: the coverage check below fails on a changed line that has neither.
-
-Two files escape the rule, on purpose:
-
-- `manifest.json` is JSON, which has no comments. Its delta - id, name, description, `clonedFrom` - is visible only in the diff.
-- `Utils.js` is new, so the whole file is the fork's; the file boundary is the fence.
-
-**The markers are checked, not merely conventional.** `bin/check` runs two stages over the tracked files: the fences must balance (every start its end, no end unmet), and every line this fork has added to `Panel.qml` against the pinned base must sit inside a fence or carry a tail marker - an unmarked change fails the check. `tools/sync-upstream` additionally refuses to merge over unbalanced fences, the way it already refuses to merge over leftover conflict markers.
-
-**Check a change stays mergeable rather than assuming it.** Three-way merge `Panel.qml` against a deliberately adversarial upstream:
+To test a merge against an upstream edit at a line this fork appends to, create an adversarial `theirs.qml` and run:
 
 ```bash
 sha=$(sed -n 's/^sha=//p' upstream.lock)
@@ -75,156 +46,89 @@ cp /tmp/base.qml /tmp/theirs.qml   # then add an upstream edit to theirs.qml
 git merge-file --diff3 -p Panel.qml /tmp/base.qml /tmp/theirs.qml > /tmp/merged.qml
 ```
 
-Insert into `theirs.qml` at the exact lines this fork appends to. A conflict whose `||||||| base` section is empty means both sides only added lines, so resolving is a matter of picking an order. A conflict with content in the base section means something was edited, and that is the thing to avoid.
+An empty `||||||| base` conflict section means both sides only inserted lines; choose an order. Content in that section means an upstream-owned line was edited and should be avoided.
 
-## Upstream
+## Upstream sync
 
-`upstream.lock` records the omarchy commit this fork tracks, and that commit is the common ancestor for every merge.
+`upstream.lock` pins the common ancestor for each merge. Inspect the state and fork delta, then merge:
 
 ```bash
-tools/sync-upstream --check    # what upstream has done, and what we have, touches nothing
-tools/sync-upstream --diff     # our changes against the pinned base, as a patch
-tools/sync-upstream            # merge it in
+tools/sync-upstream --check    # report upstream and fork state; no changes
+tools/sync-upstream --diff     # fork delta against the pinned base
+tools/sync-upstream            # merge upstream
 ```
 
-`--check` and `--diff` change nothing and can be combined.
-
-### Reading the fork's own diff before syncing
-
-`tools/sync-upstream --diff` is the answer to "what have we changed here?", as a patch rather than a line count. It diffs each tracked file against the pinned sha, so it is this fork's delta whatever upstream has done since: it reads the same when you are up to date, when upstream has moved, and before a merge has run. Output is `git diff`, so it pages on a terminal and is a valid patch when redirected:
+`--check` and `--diff` are read-only and can be combined. `--diff` shows the same fork delta before or after upstream moves; redirect it to validate the patch:
 
 ```bash
 tools/sync-upstream --diff > fork.patch
-git apply --check --reverse fork.patch   # confirm it is exactly the current delta
+git apply --check --reverse fork.patch
 ```
 
-A file that matches the pinned base does not appear at all (`Model.js` in practice), which is the same signal `--check` gives as "identical to upstream".
+Files identical to the pinned base (normally `Model.js`) do not appear. The sync fetches `basecamp/omarchy` to a bare mirror under `$TMPDIR` (`OMARCHY_UPSTREAM_MIRROR` can override it), then merges `Panel.qml`, `Model.js`, and `manifest.json` with `git merge-file --diff3`: current fork, pinned base, current upstream. Non-overlapping changes combine; conflicting hunks need resolution. The pin advances only after all files merge cleanly. Resolve and commit a conflict, then rerun the sync to merge from the still-pinned base and advance the pin.
 
-### The merge
+### Track the installed release
 
-`sync-upstream` fetches `basecamp/omarchy` into a bare mirror under `$TMPDIR` (override with `OMARCHY_UPSTREAM_MIRROR` if you want to keep it), then runs `git merge-file --diff3` over `Panel.qml`, `Model.js` and `manifest.json`:
+Sync against the Omarchy **release branch installed on your machine**, not the `quattro` development branch. Releases form a fast-forward chain; `quattro` can introduce APIs not present in any released shell. Update Omarchy first, then run `tools/sync-upstream`.
 
-- **current** - this fork's file
-- **base** - the file at the pinned sha
-- **other** - the file at the current upstream tip
+A cloned panel depends on shell-provided types and singleton members. Newer panel code can silently fail to load on an older shell:
 
-Changes that do not overlap combine on their own. Only genuinely conflicting hunks stop for a human, and the markers are labelled so it is obvious which side is which:
-
-```
-<<<<<<< ours (Panel.qml)
-  Button { text: root.modeLabel() }   // FORK: ours
-||||||| base (upstream c668141e)
-  Button { }
-=======
-  Button { text: root.heroStatusText }   // upstream
->>>>>>> upstream (v4-0-4 c668141e)
-```
-
-The pin only advances when every file merged clean. Resolve a conflict, commit the resolution, then re-run: it merges again from the still-unpinned base, which by then matches your resolved file, so the second run comes back clean and re-pins.
-
-### Which upstream branch, and the ordering rule
-
-**It tracks the omarchy you have installed: the release branch, not omarchy's development branch.** That is the part worth understanding, because getting it wrong is invisible until the widget fails to appear.
-
-Every release has its own branch (`v4-0-1`, `v4-0-4`, ...), and they form a fast-forward chain, so after `omarchy update` the pin walks forward from one release to the next. `quattro` is omarchy's development branch and the repo's default; merging against it would import panel code that no released omarchy has yet.
-
-A cloned first-party panel is not self-contained. It imports types and singleton members that the shell provides, so panel code from a newer omarchy can reference API this machine does not have:
-
-| upstream commit | what `Panel.qml` gained | what happens on an older omarchy |
+| Upstream commit | New API | Failure on an older shell |
 | --- | --- | --- |
-| `c231097d` | `ShellIpc`, plus its `qmldir` entry | `ShellIpc is not a type`; the widget never loads and the bar slot is simply empty |
-| `b18ab495` | `Style.duration()`, `Style.reduceMotion` | `Style` exists, so these fail as missing members |
+| `c231097d` | `ShellIpc` and its `qmldir` entry | `ShellIpc is not a type`; panel does not load |
+| `b18ab495` | `Style.duration()`, `Style.reduceMotion` | Missing `Style` members |
 
-Neither produces an error anyone sees. So the order is: **update omarchy first, then run `tools/sync-upstream`** to advance the pin. Until then, `--check` reporting drift is correct information rather than an action item, and `bin/check` fails if the panel ever outruns the shell again.
-
-`--check` also compares the lock's `branch=` against the omarchy installed on this machine and warns when they disagree, so that ordering rule is checked rather than only written down. It warns and carries on: a fork tracking an older omarchy is still a fork worth keeping in step.
-
-After merging, run `bin/check`. The `Model.js` stage will tell you if the merge touched something it should not have, and the shell API stages will tell you if the merge outran the omarchy you are running.
+Until Omarchy is updated, `--check` reporting upstream drift is informational. It also warns if `upstream.lock`'s `branch=` differs from the installed release. After syncing, run `bin/check`; it verifies `Model.js` and checks that `Panel.qml` does not outrun the installed shell API.
 
 ## Checks
 
-```bash
-bin/check
-```
+Run `bin/check` before committing. It is CI's check entry point plus local Omarchy-shell checks. Failures exit non-zero; unavailable environment-dependent stages are reported as skipped.
 
-Run it before committing. It is everything CI runs, plus the two stages that need an Omarchy box. Any failing stage exits non-zero, and skipped stages are listed, so a partial run never reads as green.
-
-| Stage | Fails on |
+| Check | Detects |
 | --- | --- |
-| `bash -n`, once per script | a shell script that does not parse |
-| `bin/check-agent-files` | an agent-instruction file anywhere in the tree |
-| `manifest.json` parse | invalid JSON |
-| `node --test`, both suites | any test failure |
-| fork marker balance | a `charge-types` fence that starts and does not end, or vice versa (runs in CI too) |
-| `Model.js` against the pinned upstream sha | any divergence at all (runs in CI too) |
-| fork marker coverage | a `Panel.qml` line this fork changed that is neither fenced nor tail-marked |
-| `qmllint` type resolution | `Panel.qml` referencing shell API this omarchy lacks |
-| `Style` members | `Panel.qml` using a `Style` member the installed omarchy lacks |
-| `omarchy plugin validate` | manifest schema |
-| `tools/sync-upstream --check` | never; reports where this fork sits |
+| `bash -n` | Invalid shell syntax |
+| `bin/check-agent-files` | Publishable agent-instruction files |
+| `manifest.json` parse / `omarchy plugin validate` | Invalid JSON or manifest schema |
+| Both `node --test` suites | Test failures |
+| Fork marker balance / coverage | Unbalanced fences or unmarked `Panel.qml` changes (balance also runs in CI) |
+| `Model.js` vs pinned upstream | Any divergence (also runs in CI) |
+| `qmllint` type resolution / `Style` members | Shell APIs missing from the installed Omarchy |
+| `tools/sync-upstream --check` | Reports sync state; does not fail |
 
-Five of those deserve a note.
+Keep `Model.js` unchanged and keep every fork addition marked. The shell checks guard against a cloned panel silently failing to load because it uses an API newer than the installed Omarchy. Type resolution uses `qmllint` (excluding `signal-handler-parameters`, which upstream also reports); the separate `Style` check is needed because `qmllint` cannot detect missing members on a resolved singleton. `qmllint`'s exit code, not its warning text, indicates parse failure.
 
-**`Model.js` must stay byte-identical to upstream.** The README calls it unchanged, and every line added to it is a line that can conflict on the next sync. Upstream tests it in `test/shell.d/power-test.sh`, so churn there is noise for them as well. If this stage fails, the fix is almost always to revert `Model.js` and put the code somewhere else.
-
-**The marker stages keep the fork's delta marked.** Balance is comment-only and needs nothing, so it runs in CI too. Coverage diffs `Panel.qml` against the pinned base and requires that every added line sit inside a `charge-types` fence or carry a tail marker - it is the machine's eye on the rule that every change from upstream is marked, and it is why an unmarked insertion is a failed check rather than a style gripe.
-
-**The shell API stages are the important ones.** A cloned first-party panel is not self-contained: it imports types and singleton members the shell provides, so panel code from a newer omarchy can reference API this machine does not have. `ShellIpc` and `Style.duration()` both shipped here first and both failed silently, the widget just never appearing in the bar. Type resolution reuses qmllint's own resolver rather than a hand-rolled list, so nothing new to maintain; `signal-handler-parameters` is excluded because upstream's own file produces it. The `Style` check exists separately because qmllint structurally cannot catch a missing member on a singleton that does resolve.
-
-**`qmllint` is otherwise gated on its exit status, not its output.** qmllint reports everything as `Warning: ... [category]`, a fatal syntax error included, so grepping for `Error` finds nothing. The exit code is the signal: 0 when the file parses, 255 when it does not.
-
-**The two shell API stages are gated separately, because they need different things.** The `Style` check is `grep` against the installed `Style.qml` and needs
-nothing but `$SHELL_DIR`; only type resolution runs `qmllint`. They used to sit in one `if/elif`, so a box with Qt installed but unlinked skipped both and reported the missing shell directory as the reason, which was false. `qmllint` lives in `/usr/lib/qt6/bin` without a symlink into `/usr/bin`, so `command -v` misses it on most boxes; `bin/check` probes that directory and the `x86_64-linux-gnu` variant, then falls back to `PATH`. Each skip now names its own cause, and a skip is a skip of one stage rather than two.
-
-Stages skipped: no `omarchy` (off-box), no `qmllint` (not installed), no upstream shell tree. The shell API stages can never run in CI, which has no Omarchy; they run for anyone who clones the repo on an Omarchy box. The `Style` stage runs anywhere `$SHELL_DIR` exists, so it runs with or without `qmllint`.
-
-`bin/check` guards the two ways this fork has broken before: `Model.js` drifting from upstream, and `Panel.qml` outrunning the shell API you are running.
+The shell API stages need `$SHELL_DIR`; type resolution also needs `qmllint` (searched under `/usr/lib/qt6/bin` and its `x86_64-linux-gnu` variant, then `PATH`). Each stage reports its own skip reason. The shell API checks cannot run in CI; the `Style` check can run wherever `$SHELL_DIR` exists.
 
 ## Tests
 
 ```bash
-node --test tests/utils.test.cjs      # the logic
-node --test tests/charge-types.test.cjs  # the helper's arguments and writes
+node --test tests/utils.test.cjs
+node --test tests/charge-types.test.cjs
 ```
 
-Neither needs root, a particular battery, or anything in `/sys`. The helper's privileged path is exercised through `unshare -r`, which maps the caller to uid 0 in a throwaway user namespace, with the sysfs glob rewritten to point at a temporary tree. The host is untouched.
-
-`tests/utils.test.cjs` covers `Utils.js`: the words the helper prints, the state mapping, the value check that gates `pkexec`, and the battery-health rendering. `tests/charge-types.test.cjs` covers `bin/charge-types`: argument validation, exit codes, the write, and the agreement between the helper, `install.sh`, `uninstall.sh` and `Panel.qml` about the path they share.
-
-One gap, on purpose. The branch that reports a write the kernel refused needs a sysfs attribute that rejects a value, which a plain file cannot be, so that test asserts the check is present rather than pretending to exercise it.
+Tests need no root, battery, or `/sys` access. The helper's privileged path uses `unshare -r` and a temporary sysfs tree, leaving the host untouched. The first suite covers shared logic, state mapping, `pkexec` gating, and battery-health rendering; the second covers helper arguments, exit codes, writes, and the shared helper path. The kernel-rejected-write case cannot be exercised with a plain file, so its test checks the validation rather than simulating a rejection.
 
 ## Keyboard navigation
 
-The panel's keyboard cursor is upstream's own: `cursorActive` plus a flat `profileIndex` into the profile buttons. We extend that rather than replace it. The rows below the stats are the profile row and the charge row, in display order, and the cursor over them is `cursorRow: -1 | 0 | 1` - an index into that display order, where `-1` means "not armed" - instead of the boolean a single row would need, because the walk now moves *between* the two rows.
+The panel extends upstream's `cursorActive` / `profileIndex` navigation with `cursorRow: -1 | 0 | 1` for the profile and charge rows (`-1` means unarmed).
 
-- `h`/`l` and the left/right arrows move between profiles, unchanged.
-- `j`/`k` and up/down walk between the two rows (`Utils.moveRowFocus`), lighting exactly one row at a time, clamped at both ends, no wrap. From unarmed, the first move press arms and lands on the first available row down, or the last up.
-- Return or Space activates whichever row the cursor is on: on the profile row it activates the selected profile, on the charge row it opens the dropdown.
-- Hovering a row moves the cursor there, so mouse and keyboard agree and only one row is lit. The charge row only claims the cursor when it is ready.
-- While the dropdown's popup is open the panel's key catcher suspends (`blocked`), so `j`/`k`, Return and Esc drive the popup instead of the panel; on close the catcher resumes and the cursor is back on the charge row.
+- `h`/`l` and left/right move between profiles.
+- `j`/`k` and up/down move between rows via `Utils.moveRowFocus`; movement is clamped, does not wrap, and lights one row. From unarmed, the first move selects the first available row in that direction.
+- Return/Space activates the selected profile or opens the charge dropdown. Hover moves the cursor to the hovered row; the charge row takes focus only when ready.
+- While the popup is open, the panel key catcher is blocked so the popup receives `j`/`k`, Return, and Esc. On close, focus returns to the charge row.
+- Unlike upstream, `j`/`k` move between rows and `h`/`l` move between profiles. An unavailable charge row is skipped, so keyboard users cannot focus the install-needed caption.
+- Reopening the panel resets the cursor to unarmed. Within a session it stays on the last row, including after hover ends, matching upstream's `cursorActive` behavior.
 
-Two deliberate differences from a stock panel:
-
-- Upstream sends `j`/`k` into the profile list. Here they change rows, and only `h`/`l` move between profiles.
-- Our row is skipped entirely while it cannot act - before `install.sh` has run, or the type has not been read - so the cursor cannot park on a dropdown that would refuse to act. The cost is that the row's "run `sudo ./install.sh`" caption cannot be read with the keyboard alone.
-
-The row's label is bold because the shared `Dropdown` component hardcodes `font.bold` on its label and offers no property to turn it off. Matching regular weight, as the network panel's list rows use, would mean replacing a shared component with a local one - and losing its tab focus and popup handling with it.
-
-On (re)opening the panel the cursor resets to unarmed along with `cursorActive`, so a row focused in the last session does not light on the first key press; the first move press re-arms it. Within a session the cursor stays where it was last put, and hovering a row leaves it lit after the mouse moves away, because that is upstream's behaviour: `cursorActive` is only ever cleared when the battery appears, so a profile button stays lit the same way. We match it rather than giving our row a second hover model.
-
-The keyboard cursor is the one place where adding a feature meant changing upstream's code rather than only adding to it: the key dispatcher's `onMoveRequested` and `onActivateRequested` handlers, the key catcher's `blocked` line, and the profile `Button`'s `hasCursor` and `onHovered` - a row that is not ours must not light, and hovering it must not steal the cursor. The handlers now call one function of ours, and upstream's `selectProfileByDelta`, `activateSelectedProfile` and `setProfile` are untouched behind them. The rules in [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) apply to those from now on.
+The shared `Dropdown` forces a bold label; making it regular would require replacing it and losing its tab-focus and popup handling. The cursor hooks are the only feature edits to upstream-owned keyboard code; preserve upstream's `selectProfileByDelta`, `activateSelectedProfile`, and `setProfile` behavior. See [Keeping `Panel.qml` mergeable](#keeping-panelqml-mergeable) before changing those lines.
 
 ## Security
 
-The reasoning behind the root-owned helper lives in the README's *How the privileged part works* section. The short version: the installed copy is the only thing ever elevated, it takes no path from its caller, and it writes only values it just read from the attribute's own list.
+See the README's [privileged-helper explanation](../README.md#how-the-privileged-part-works) before changing `bin/charge-types`, `install.sh`, `uninstall.sh`, or `policy/`. Preserve these invariants:
 
-If you touch `bin/charge-types`, `install.sh`, `uninstall.sh` or `policy/`, read that section first. Two invariants the tests currently only partly cover, and which you should not weaken:
-
-- The helper never re-executes itself. `set` requires already being root, so a copy in a user-writable directory cannot elevate itself.
-- `install.sh` must not copy the rules example into `/etc/polkit-1`. Nothing should persist in the system's authorisation policy unless a person asked for it.
+- The installed root-owned copy is the only elevated helper; it takes no path from its caller and writes only listed charge types.
+- The helper never re-executes itself; `set` only runs when invoked as root.
+- `install.sh` never installs the example polkit rule. System-wide passwordless authorization is opt-in.
 
 ## Not allowed in this tree
 
-No `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `SKILL.md`, `.claude/`, `.cursor/` or anything else `bin/check-agent-files` recognises. `omarchy plugin add` copies this repository into a path coding agents auto-discover, and the marketplace refuses plugins carrying those files. `bin/check` enforces it.
-
-Also: no symlinks inside the plugin folder, no personal paths, no secrets, and nothing machine-specific in fixtures or history.
+Do not include `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `SKILL.md`, `.claude/`, `.cursor/`, or other files recognized by `bin/check-agent-files`. The plugin is copied to a path coding agents discover, and the marketplace rejects these files; `bin/check` enforces the rule. Also exclude symlinks within the plugin, personal paths, secrets, and machine-specific fixtures or history.
