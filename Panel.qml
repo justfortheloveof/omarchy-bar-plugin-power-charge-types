@@ -52,7 +52,7 @@ Panel {
   // exit code we only learn at the end.
   property var chargeTypesErrors: []
   // The row cursor over the rows below the stats, in display order: -1 none,
-  // 0 the charge row, 1 the profile row. An index rather than the old boolean,
+  // 0 the profile row, 1 the charge row. An index rather than the old boolean,
   // because the walk now moves *between* the two rows, not just onto ours.
   property int cursorRow: -1
   // The Battery health row's value, from energy_full / energy_full_design.
@@ -63,11 +63,12 @@ Panel {
     chargeTypesInstalled && chargeTypesSupported && chargeTypesKnown && !chargeTypesBusy
   readonly property string chargeTypesDescription: {
     // A disabled row still renders as an ordinary row, so each not-ready state
-    // has to say in text whether what it shows is a fact or a guess.
+    // has to say in text whether what it shows is a fact or a guess. The ready
+    // state returns "": the caption's visible guard then hides the line.
     if (!chargeTypesInstalled) return "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes."
     if (!chargeTypesSupported) return "No charge-type control on this battery, so the type cannot be changed."
     if (!chargeTypesKnown) return "Current charge type unknown: the battery reported a value this plugin does not recognise."
-    return "Long Life stops charging early to reduce battery wear."
+    return ""
   }
   // ---- charge-types: end ----
   readonly property bool showPercentage: setting("showPercentage", false) === true
@@ -143,25 +144,25 @@ Panel {
     return value
   }
 
-  // Vertical navigation: walk between the charge row and the profile row,
+  // Vertical navigation: walk between the profile row and the charge row,
   // skipping whichever is unavailable. dx never reaches here, so left/right
   // stay on profiles.
   function moveRowFocus(delta) {
     cursorRow = Utils.moveRowFocus(
       cursorRow,
       delta,
-      [root.chargeTypesReady, root.profiles.length > 0]
+      [root.profiles.length > 0, root.chargeTypesReady]
     )
   }
 
   // Return/Space on whichever row the cursor is on; the key dispatcher calls
-  // this rather than activateSelectedProfile. Row 0 opens the dropdown (whose
-  // popup then owns the keys until it closes); row 1 acts on the selected
-  // profile; an armed cursor on no row does nothing.
+  // this rather than activateSelectedProfile. Row 0 acts on the selected
+  // profile; row 1 opens the dropdown (whose popup then owns the keys until
+  // it closes); an armed cursor on no row does nothing.
   function activateCursor() {
     if (!root.cursorActive) return
-    if (root.cursorRow === 0) root.chargeTypesDropdown.open()
-    else if (root.cursorRow === 1) root.activateSelectedProfile()
+    if (root.cursorRow === 0) root.activateSelectedProfile()
+    else if (root.cursorRow === 1) root.chargeTypesDropdown.open()
   }
   // ---- charge-types: end ----
 
@@ -657,65 +658,6 @@ Panel {
           }
         }
 
-        // ---- charge-types: start ----
-        // ---------- Charge profile picker ----------
-        PanelSeparator {
-          foreground: root.bar.foreground
-        }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(10)
-
-          PanelSectionHeader {
-            text: "CHARGE PROFILE"
-            foreground: root.bar.foreground
-            fontFamily: root.bar.fontFamily
-          }
-
-          Dropdown {
-            id: chargeTypesDropdown
-            width: parent.width
-            label: "Charge type"
-            value: root.chargeTypesActiveType
-            options: root.chargeTypesOptionList
-            enabled: root.chargeTypesReady
-            foreground: root.bar.foreground
-            accent: Color.accent
-            fontFamily: root.bar.fontFamily
-            // Same cursor flag the profile Buttons use, which is all the
-            // highlight needed: Dropdown's _hot is
-            // hasCursor || mouse hover, same as Button's.
-            hasCursor: root.cursorActive && root.cursorRow === 0
-            onHovered: function(h) {
-              if (!h || !Utils.hoverClaimsFocus(root.chargeTypesReady)) return
-              root.cursorActive = true
-              root.cursorRow = 0
-            }
-            // The popup's selection is the write request; the pkexec round-trip
-            // and the re-probe happen in requestSetChargeType.
-            onChanged: function(value) { root.requestSetChargeType(value) }
-            // On close the panel's keyCatcher resumes; per the spec the cursor
-            // is back on the charge row, so restore it: a hover during the
-            // open popup, or a row the cursor sat on, would otherwise strand
-            // it. Unready means no row to land on, so it stays unarmed.
-            onPopupOpenChanged: if (!chargeTypesDropdown.popupOpen)
-              root.cursorRow = root.chargeTypesReady ? 0 : -1
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            visible: root.chargeTypesDescription !== ""
-            text: root.chargeTypesDescription
-            color: Qt.darker(root.bar.foreground, 1.5)
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-            width: parent.width
-          }
-        }
-        // ---- charge-types: end ----
-
         // ---------- Power profile picker ----------
         PanelSeparator {
           foreground: root.bar.foreground
@@ -756,13 +698,13 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && root.cursorRow === 1 && root.profileIndex === index // charge-types
+                hasCursor: root.cursorActive && root.cursorRow === 0 && root.profileIndex === index // charge-types
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
                     root.profileIndex = index
-                    root.cursorRow = 1 // charge-types
+                    root.cursorRow = 0 // charge-types
                   }
                 }
               }
@@ -770,6 +712,67 @@ Panel {
           }
 
         }
+
+        // ---- charge-types: start ----
+        // ---------- Charge profile picker ----------
+        PanelSeparator {
+          foreground: root.bar.foreground
+        } // charge-types
+
+        Column {
+          width: parent.width
+          spacing: Style.space(10)
+
+          PanelSectionHeader {
+            text: "CHARGE PROFILE"
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+          }
+
+          Dropdown {
+            id: chargeTypesDropdown
+            width: parent.width
+            // No field label: the section header above names this, and a
+            // second "Charge type" line under it was just noise.
+            label: ""
+            value: root.chargeTypesActiveType
+            options: root.chargeTypesOptionList
+            enabled: root.chargeTypesReady
+            foreground: root.bar.foreground
+            accent: Color.accent
+            fontFamily: root.bar.fontFamily
+            // Same cursor flag the profile Buttons use, which is all the
+            // highlight needed: Dropdown's _hot is
+            // hasCursor || mouse hover, same as Button's.
+            hasCursor: root.cursorActive && root.cursorRow === 1
+            onHovered: function(h) {
+              if (!h || !Utils.hoverClaimsFocus(root.chargeTypesReady)) return
+              root.cursorActive = true
+              root.cursorRow = 1
+            }
+            // The popup's selection is the write request; the pkexec round-trip
+            // and the re-probe happen in requestSetChargeType.
+            onChanged: function(value) { root.requestSetChargeType(value) }
+            // On close the panel's keyCatcher resumes; per the spec the cursor
+            // is back on the charge row, so restore it: a hover during the
+            // open popup, or a row the cursor sat on, would otherwise strand
+            // it. Unready means no row to land on, so it stays unarmed.
+            onPopupOpenChanged: if (!chargeTypesDropdown.popupOpen)
+              root.cursorRow = root.chargeTypesReady ? 1 : -1
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            visible: root.chargeTypesDescription !== ""
+            text: root.chargeTypesDescription
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            width: parent.width
+          }
+        } // charge-types
+        // ---- charge-types: end ----
       }
     }
   }

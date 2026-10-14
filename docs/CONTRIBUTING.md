@@ -195,11 +195,11 @@ One gap, on purpose. The branch that reports a write the kernel refused needs a 
 
 ## Keyboard navigation
 
-The panel's keyboard cursor is upstream's own: `cursorActive` plus a flat `profileIndex` into the profile buttons. We extend that rather than replace it. The rows below the stats are the charge row and the profile row, in display order, and the cursor over them is `cursorRow: -1 | 0 | 1` - an index into that display order, where `-1` means "not armed" - instead of the boolean a single row would need, because the walk now moves *between* the two rows.
+The panel's keyboard cursor is upstream's own: `cursorActive` plus a flat `profileIndex` into the profile buttons. We extend that rather than replace it. The rows below the stats are the profile row and the charge row, in display order, and the cursor over them is `cursorRow: -1 | 0 | 1` - an index into that display order, where `-1` means "not armed" - instead of the boolean a single row would need, because the walk now moves *between* the two rows.
 
 - `h`/`l` and the left/right arrows move between profiles, unchanged.
 - `j`/`k` and up/down walk between the two rows (`Utils.moveRowFocus`), lighting exactly one row at a time, clamped at both ends, no wrap. From unarmed, the first move press arms and lands on the first available row down, or the last up.
-- Return or Space activates whichever row the cursor is on: on the charge row it opens the dropdown, on the profile row it activates the selected profile.
+- Return or Space activates whichever row the cursor is on: on the profile row it activates the selected profile, on the charge row it opens the dropdown.
 - Hovering a row moves the cursor there, so mouse and keyboard agree and only one row is lit. The charge row only claims the cursor when it is ready.
 - While the dropdown's popup is open the panel's key catcher suspends (`blocked`), so `j`/`k`, Return and Esc drive the popup instead of the panel; on close the catcher resumes and the cursor is back on the charge row.
 

@@ -185,34 +185,40 @@ test("the helper's failure words are the ones parseChargeTypes knows", () => {
   assert.match(helper, /printf 'unknown\\n'/, "prints the unknown word");
 });
 
-test("the panel's caption carries the four spec states verbatim", () => {
+test("the panel's caption carries the three not-ready spec states verbatim", () => {
   // The readiness caption is the only text that says whether a disabled row
-  // shows a fact or a guess, so its four wordings are locked to the spec's.
+  // shows a fact or a guess, so its three not-ready wordings are locked to
+  // the spec's. The ready state returns "" - the caption's visible guard then
+  // hides the line - so it is locked separately, not in the non-empty list.
   // (The README-verbatim counterpart of this lock returns once the README is
   // rewritten for charge types.)
   const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
 
   const at = panel.indexOf("readonly property string chargeTypesDescription");
   assert.notEqual(at, -1, "Panel.qml declares the chargeTypesDescription caption");
-  const block = panel.slice(at);
-  const strings = [
-    ...block.slice(0, block.indexOf("\n  }")).matchAll(/return "([^"]+)"/g),
-  ].map((m) => m[1]);
+  const block = panel.slice(at, panel.indexOf("\n  }", at));
+  const strings = [...block.matchAll(/return "([^"]+)"/g)].map((m) => m[1]);
 
   assert.deepEqual(strings, [
     "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes.",
     "No charge-type control on this battery, so the type cannot be changed.",
     "Current charge type unknown: the battery reported a value this plugin does not recognise.",
-    "Long Life stops charging early to reduce battery wear.",
   ]);
+  assert.match(block, /return ""/, "the ready state is empty, so the caption hides");
 });
 
 test("the panel builds the CHARGE PROFILE section the spec describes", () => {
-  // The section's shape is user-visible: its header, the dropdown's label,
-  // and the dropdown type itself are what a user sees, so lock them.
+  // The section's shape is user-visible: its header, its position, the
+  // dropdown type itself, and the empty label are what a user sees, so lock
+  // them. The label is empty on purpose: the section header names it, and a
+  // second "Charge type" line under it was noise.
   const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
   assert.match(panel, /PanelSectionHeader \{[^}]*text: "CHARGE PROFILE"/s, "the section header");
-  assert.match(panel, /label: "Charge type"/, "the dropdown's label");
+  assert.ok(
+    panel.indexOf('text: "CHARGE PROFILE"') > panel.indexOf('text: "POWER PROFILE"'),
+    "the charge section sits at the bottom, under the power profile",
+  );
+  assert.match(panel, /label: ""/, "the dropdown's label is empty");
   assert.match(panel, /Dropdown \{/, "a qs.Ui.Dropdown, not a Toggle");
   assert.ok(!/Toggle \{/.test(panel), "the old Toggle is gone");
 });
@@ -232,8 +238,8 @@ test("moveRowFocus stays unarmed when nothing is available", () => {
 });
 
 test("moveRowFocus walks between the available rows", () => {
-  assert.equal(moveRowFocus(0, 1, [true, true]), 1, "down moves to the profile row");
-  assert.equal(moveRowFocus(1, -1, [true, true]), 0, "up returns to the charge row");
+  assert.equal(moveRowFocus(0, 1, [true, true]), 1, "down moves to the charge row");
+  assert.equal(moveRowFocus(1, -1, [true, true]), 0, "up returns to the profile row");
 });
 
 test("moveRowFocus clamps at both ends rather than wrapping", () => {

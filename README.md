@@ -54,16 +54,17 @@ It grants that one exact command line, `.../charge-types set <type>`, **without 
 
 ### How the charge type row behaves
 
-The selector sits in its own **CHARGE PROFILE** section below the stats, in the power panel: a "Charge type" dropdown listing the types the battery offers, with a caption beneath it. The caption is the row's status: it says in words what the dropdown shows, and the dropdown is only enabled when the caption's good state applies.
+The selector sits in its own **CHARGE PROFILE** section at the bottom of the power panel, under POWER PROFILE: a dropdown listing the types the battery offers, with a caption beneath it when there is a problem to explain. The caption is the row's status: it renders only in the not-ready states below, and the dropdown is enabled only once no caption applies.
 
 | The caption says | What is going on |
 | --- | --- |
 | `Current charge type unknown. Run sudo ./install.sh in the plugin directory to enable changes.` | The helper was never installed, so the type cannot be read at all - not even the current value. See [Install](#install). |
 | `No charge-type control on this battery, so the type cannot be changed.` | The battery's `charge_types` list is absent or unusable on this machine (for example a pre-6.14 kernel), so there is nothing to switch between. |
 | `Current charge type unknown: the battery reported a value this plugin does not recognise.` | The list was read, but it is malformed in a way the plugin will not guess at, so it will not act on it. |
-| _Long Life stops charging early to reduce battery wear._ | Everything was read and the row is ready; the dropdown offers the battery's own list, with the active type selected. |
 
-The three unknown states come from three different places, and only the first is something you can do anything about: the helper was never installed, the battery's list is unusable, or it reported something the plugin does not recognise.
+With no caption at all, everything was read and the row is ready: the dropdown offers the battery's own list, with the active type selected.
+
+The three caption states come from three different places, and only the first is something you can do anything about: the helper was never installed, the battery's list is unusable, or it reported something the plugin does not recognise.
 
 ### The "Charge limit" row
 
