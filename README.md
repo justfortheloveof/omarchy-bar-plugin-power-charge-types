@@ -1,16 +1,21 @@
 # Power - with Charge Types
 
-Adds a charge-type selector and battery-health readout to Omarchy's Quattro power bar. _Tested on a ThinkBook 13x G2 IAP._
+Adds a charge-type selector and battery-health readout to Omarchy's Quattro power bar.
+
+**Only tested on a Lenovo ThinkBook 13x G2 IAP.**
 
 The kernel exposes the power supply's `charge_types` attribute on batteries since Linux 6.14 (December 2024). `Long_Life` typically stops charging around 80%, helping preserve battery capacity when a machine stays plugged in.
 
 ![preview](preview.png)
 
+We use a drop-down instead of buttons because different hardware may support fewer or more charge profiles/types. The plugin reads the `charge_types` list and shows the active type, so it works with any battery that exposes `charge_types` and `energy_full_design`.
+
 ## What it does
 
 - Replaces Omarchy's stock Power panel; removing this plugin restores it.
-- Shows the active charge type and offers a dropdown of the battery's supported types. Failed writes trigger a notification.
+- Shows the active charge type and offers a drop-down of the battery's supported types. Failed writes trigger a notification.
 - Shows battery health (remaining vs. design capacity, from `energy_full` / `energy_full_design`) in place of the stock battery-size row.
+- Uses polkit for elevated operations; the default is to require authentication for each change, but an optional rule can allow passwordless changes.
 
 ## Install
 
@@ -38,7 +43,7 @@ This permanently grants the exact `charge-types set <type>` command to wheel mem
 
 ## Charge-type selector
 
-The **CHARGE PROFILE** section appears below POWER PROFILE. Its dropdown is enabled when the battery's type list and active type can be read. Otherwise, the caption explains why:
+The **CHARGE PROFILE** section appears below POWER PROFILE. Its drop-down is enabled when the battery's type list and active type can be read. Otherwise, the caption explains why:
 
 | Caption | Meaning |
 | --- | --- |
@@ -94,7 +99,7 @@ Plugin removal restores the stock Power panel but only removes files under `~/.c
 
 ## How the privileged part works
 
-Reading `charge_types` is allowed to regular users; writing it requires root. The panel reads through the helper, so the selector cannot read the active type until the helper is installed, though reading never prompts for a password. Because the plugin directory is user-writable, `install.sh` copies the helper to a root-owned location and only that installed copy is elevated:
+Reading `charge_types` is allowed to regular users; writing it requires root. The panel reads through the helper script, so the selector cannot read the active type until the helper is installed, though reading never prompts for a password. Because the plugin directory is user-writable, `install.sh` copies the helper to a root-owned location and only that installed copy is elevated:
 
 ```
 /usr/local/libexec/io.github.justfortheloveof.power-charge-types/charge-types  root:root, mode 0755

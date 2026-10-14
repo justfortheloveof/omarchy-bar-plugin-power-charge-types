@@ -5,16 +5,14 @@
   "version": "0.2.0",
   "author": "justfortheloveof",
   "license": "MIT",
-  "description": "The Omarchy power panel, plus a charge-type selector and battery-health readout.",
-  "kinds": [
-    "bar-widget"
-  ],
+  "description": "The Omarchy power panel, plus a charge-type selector and battery-health % readout. Tested on a Lenovo ThinkBook 13x G2 IAP.",
+  "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "Panel.qml"
   },
   "barWidget": {
     "displayName": "Power - with Charge Types",
-    "description": "Battery, power profile and system stats, plus a charge-type selector and battery-health readout.",
+    "description": "Battery, power profile and system stats, plus a charge-type selector and battery-health % readout. Tested on a Lenovo ThinkBook 13x G2 IAP.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
