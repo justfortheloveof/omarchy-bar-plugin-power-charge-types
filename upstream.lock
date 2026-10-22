@@ -17,7 +17,7 @@
 #
 # Only tools/sync-upstream should change sha, and only after a conflict-free
 # merge; editing it by hand to skip a version discards the changes in between.
-sha=c668141e9c42b13c80c9ca4ea108e11708c5e8a5
+sha=237f1b4071a0bff2296c6d740ba2b9fd695ebfa0
 path=shell/plugins/panels/power
-repo=https://github.com/basecamp/omarchy.git
-branch=v4-0-4
+repo=https://github.com/omacom/omarchy.git
+branch=v4-0-6
