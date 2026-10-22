@@ -747,7 +747,7 @@ Panel {
             options: root.chargeTypesOptionList
             enabled: root.chargeTypesReady
             foreground: root.bar.foreground
-            accent: Color.accent
+            accent: Commons.Color.accent
             fontFamily: root.bar.fontFamily
             // Same cursor flag the profile Buttons use, which is all the
             // highlight needed: Dropdown's _hot is
