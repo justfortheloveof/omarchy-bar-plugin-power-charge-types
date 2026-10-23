@@ -39,8 +39,9 @@ Panel {
   // The battery's own listed names, brackets stripped: the write's gate and the
   // dropdown's source. Empty while the list was never read.
   property var chargeTypesOptions: []
-  // The same names in the kit's { value, label } option shape: the label is the
-  // type with underscores as spaces, so Long_Life reads "Long Life".
+  // The shell's `Dropdown` component uses the same names in its `{ value, label }`
+  // option shape: the label is the type with underscores as spaces, so Long_Life
+  // reads "Long Life".
   readonly property var chargeTypesOptionList: {
     var out = []
     for (var i = 0; i < chargeTypesOptions.length; i++) {
@@ -391,8 +392,9 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         root.ingestChargeTypesStatus(text)
-        // The kit's selectCurrent() assigns the dropdown's value, tearing the
-        // binding it made to chargeTypesActiveType: from the first selection
+        // The shell's `Dropdown` component's `selectCurrent()` assigns the
+        // dropdown's value, tearing the binding it made to chargeTypesActiveType:
+        // from the first selection
         // on, a re-probed change (a dismissed write, a switch outside the
         // panel) no longer moves the displayed value. Re-sync it on every
         // probe so the display tracks the attribute again; the initial binding
