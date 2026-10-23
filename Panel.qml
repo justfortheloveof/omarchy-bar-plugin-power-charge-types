@@ -163,7 +163,7 @@ Panel {
   function activateCursor() {
     if (!root.cursorActive) return
     if (root.cursorRow === 0) root.activateSelectedProfile()
-    else if (root.cursorRow === 1) root.chargeTypesDropdown.open()
+    else if (root.cursorRow === 1) chargeTypesDropdown.open() // bare id, as in the re-sync below
   }
   // ---- charge-types: end ----
 
@@ -397,7 +397,11 @@ Panel {
         // panel) no longer moves the displayed value. Re-sync it on every
         // probe so the display tracks the attribute again; the initial binding
         // still covers probes before any selection.
-        root.chargeTypesDropdown.value = root.chargeTypesActiveType
+        // Bare id, not `root.`: this file's root is a QML-type instance, and
+        // ids are not object properties on one — `root.chargeTypesDropdown`
+        // reads undefined and the write throws a TypeError on every probe.
+        // The id resolves through the component context instead.
+        chargeTypesDropdown.value = root.chargeTypesActiveType
       }
     }
   }
