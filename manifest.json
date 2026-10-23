@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.justfortheloveof.power-charge-types",
   "name": "Power - with Charge Types",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "justfortheloveof",
   "license": "MIT",
   "description": "The Omarchy power panel, plus a charge-type selector and battery-health % readout. Tested on a Lenovo ThinkBook 13x G2 IAP.",
