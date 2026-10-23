@@ -304,7 +304,7 @@ Panel {
     // ---- charge-types: start ----
     // The value asked for, not the result: pkexec prompts, so the write has not
     // happened yet when this replies.
-    function setChargeType(type): string { return root.requestSetChargeType(type) }
+    function setChargeType(type: string): string { return root.requestSetChargeType(type) }
     function chargeTypeStatus(): string {
       if (!root.chargeTypesKnown) return "unknown"
       return root.chargeTypesActiveType
