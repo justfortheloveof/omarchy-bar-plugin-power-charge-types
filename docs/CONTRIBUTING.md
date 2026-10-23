@@ -16,11 +16,11 @@
 
 ## Relationship to upstream
 
-`Panel.qml` and `Model.js` come from [`basecamp/omarchy`][omarchy]'s `shell/plugins/panels/power/`. `Model.js` stays unchanged; `Panel.qml` contains marked additions and a few necessary edits. `manifest.json` is the only other changed upstream file; `Utils.js`, `bin/`, `policy/`, and `tests/` are new.
+`Panel.qml` and `Model.js` come from [`omacom/omarchy`][omarchy]'s `shell/plugins/panels/power/`. `Model.js` stays unchanged; `Panel.qml` contains marked additions and a few necessary edits. `manifest.json` is the only other changed upstream file; `Utils.js`, `bin/`, `policy/`, and `tests/` are new.
 
 `manifest.json`'s `omarchy.clonedFrom: omarchy.power` makes this plugin replace the built-in panel. Panels have no API for another plugin to add a section, and `clonedFrom` does not layer panels. Keep `moduleName` and `ipcTarget` as `omarchy.power`; changing them breaks the bar slot and `omarchy-shell omarchy.power` IPC.
 
-[omarchy]: https://github.com/basecamp/omarchy
+[omarchy]: https://github.com/omacom/omarchy
 
 ## Keeping `Panel.qml` mergeable
 
@@ -65,7 +65,7 @@ tools/sync-upstream --diff > fork.patch
 git apply --check --reverse fork.patch
 ```
 
-Files identical to the pinned base (normally `Model.js`) do not appear. The sync fetches `basecamp/omarchy` to a bare mirror under `$TMPDIR` (`OMARCHY_UPSTREAM_MIRROR` can override it), then merges `Panel.qml`, `Model.js`, and `manifest.json` with `git merge-file --diff3`: current fork, pinned base, current upstream. Non-overlapping changes combine; conflicting hunks need resolution. The pin advances only after all files merge cleanly. Resolve and commit a conflict, then rerun the sync to merge from the still-pinned base and advance the pin.
+Files identical to the pinned base (normally `Model.js`) do not appear. The sync fetches `omacom/omarchy` to a bare mirror under `$TMPDIR` (`OMARCHY_UPSTREAM_MIRROR` can override it), then merges `Panel.qml`, `Model.js`, and `manifest.json` with `git merge-file --diff3`: current fork, pinned base, current upstream. Non-overlapping changes combine; conflicting hunks need resolution. The pin advances only after all files merge cleanly. Resolve and commit a conflict, then rerun the sync to merge from the still-pinned base and advance the pin.
 
 ### Track the installed release
 
