@@ -19,6 +19,8 @@ We use a drop-down instead of buttons because different hardware may support few
 
 ## Install
 
+Requires **Omarchy 4.5.0 or newer**. The panel uses shell APIs that earlier releases do not have, so on an older Omarchy it will not work.
+
 The `charge_types` attribute requires **kernel ≥ 6.14**. On older kernels, the selector explains that the battery has no charge-type control and remains disabled.
 
 ```bash
