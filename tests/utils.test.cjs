@@ -197,7 +197,7 @@ test("the panel's caption carries the three not-ready spec states verbatim", () 
   const at = panel.indexOf("readonly property string chargeTypesDescription");
   assert.notEqual(at, -1, "Panel.qml declares the chargeTypesDescription caption");
   const block = panel.slice(at, panel.indexOf("\n  }", at));
-  const strings = [...block.matchAll(/return "([^"]+)"/g)].map((m) => m[1]);
+  const strings = [...block.matchAll(/Commons\.I18n\.t\("[^"]+", "([^"]+)"\)/g)].map((m) => m[1]);
 
   assert.deepEqual(strings, [
     "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes.",
@@ -213,9 +213,9 @@ test("the panel builds the CHARGE PROFILE section the spec describes", () => {
   // them. The label is empty on purpose: the section header names it, and a
   // second "Charge type" line under it was noise.
   const panel = fs.readFileSync(`${__dirname}/../Panel.qml`, "utf8");
-  assert.match(panel, /PanelSectionHeader \{[^}]*text: "CHARGE PROFILE"/s, "the section header");
+  assert.match(panel, /PanelSectionHeader \{[^}]*text: Commons\.I18n\.t\("chargeTypes\.chargeProfile", "CHARGE PROFILE"\)/s, "the section header");
   assert.ok(
-    panel.indexOf('text: "CHARGE PROFILE"') > panel.indexOf('text: "POWER PROFILE"'),
+    panel.indexOf('"chargeTypes.chargeProfile"') > panel.indexOf('"power.powerProfile"'),
     "the charge section sits at the bottom, under the power profile",
   );
   assert.match(panel, /label: ""/, "the dropdown's label is empty");

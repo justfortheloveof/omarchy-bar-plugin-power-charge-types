@@ -67,9 +67,9 @@ Panel {
     // A disabled row still renders as an ordinary row, so each not-ready state
     // has to say in text whether what it shows is a fact or a guess. The ready
     // state returns "": the caption's visible guard then hides the line.
-    if (!chargeTypesInstalled) return "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes."
-    if (!chargeTypesSupported) return "No charge-type control on this battery, so the type cannot be changed."
-    if (!chargeTypesKnown) return "Current charge type unknown: the battery reported a value this plugin does not recognise."
+    if (!chargeTypesInstalled) return Commons.I18n.t("chargeTypes.notInstalled", "Current charge type unknown. Run `sudo ./install.sh` in the plugin directory to enable changes.")
+    if (!chargeTypesSupported) return Commons.I18n.t("chargeTypes.unsupported", "No charge-type control on this battery, so the type cannot be changed.")
+    if (!chargeTypesKnown) return Commons.I18n.t("chargeTypes.unrecognised", "Current charge type unknown: the battery reported a value this plugin does not recognise.")
     return ""
   }
   // ---- charge-types: end ----
@@ -438,7 +438,7 @@ Panel {
         Quickshell.execDetached([
           "omarchy-notification-send",
           "-g", "󰂅",
-          "Charge type",
+          Commons.I18n.t("chargeTypes.notificationTitle", "Charge type"),
           why.filter(function(line) { return line.trim() !== "" }).join("\n")
         ])
       }
@@ -663,7 +663,7 @@ Panel {
           Column {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
-            InfoPair { label: "Battery health"; value: root.batteryHealthText } // charge-types
+            InfoPair { label: Commons.I18n.t("chargeTypes.batteryHealth", "Battery health"); value: root.reading(root.batteryHealthText) } // charge-types
             InfoPair { label: Commons.I18n.t("power.chargeCycles"); value: root.reading(root.batteryInfo.cycles) || "—" }
           }
 
@@ -674,7 +674,7 @@ Panel {
               label: root.chargeThresholdActive ? Commons.I18n.t("power.chargeLimit") : (root.discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull"))
               // ---- charge-types: start ----
               value: root.chargeThresholdActive
-                ? Utils.ceilingText(root.batteryInfo.threshold, root.chargeTypesActiveType)
+                ? root.reading(Utils.ceilingText(root.batteryInfo.threshold, root.chargeTypesActiveType))
                 : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
               // ---- charge-types: end ----
             }
@@ -751,7 +751,7 @@ Panel {
           spacing: Style.space(10)
 
           PanelSectionHeader {
-            text: "CHARGE PROFILE"
+            text: Commons.I18n.t("chargeTypes.chargeProfile", "CHARGE PROFILE")
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
           }
