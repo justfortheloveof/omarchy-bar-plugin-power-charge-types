@@ -164,7 +164,7 @@ Panel {
   function activateCursor() {
     if (!root.cursorActive) return
     if (root.cursorRow === 0) root.activateSelectedProfile()
-    else if (root.cursorRow === 1) chargeTypesDropdown.open() // bare id, as in the re-sync below
+    else if (root.cursorRow === 1 && panel.loadedContent) panel.loadedContent.chargeDropdown.open()
   }
   // ---- charge-types: end ----
 
@@ -408,11 +408,10 @@ Panel {
         // panel) no longer moves the displayed value. Re-sync it on every
         // probe so the display tracks the attribute again; the initial binding
         // still covers probes before any selection.
-        // Bare id, not `root.`: this file's root is a QML-type instance, and
-        // ids are not object properties on one — `root.chargeTypesDropdown`
-        // reads undefined and the write throws a TypeError on every probe.
-        // The id resolves through the component context instead.
-        chargeTypesDropdown.value = root.chargeTypesActiveType
+        // The dropdown sits in the panel's lazily built content, so it is
+        // reached through loadedContent. Before the first open there is no
+        // dropdown to re-sync, and its initial binding covers that case.
+        if (panel.loadedContent) panel.loadedContent.chargeDropdown.value = root.chargeTypesActiveType
       }
     }
   }
@@ -525,6 +524,9 @@ Panel {
     content: PanelKeyCatcher {
       id: keyCatcher
       property alias heroStatus: heroStatus
+      // ---- charge-types: start ----
+      property alias chargeDropdown: chargeTypesDropdown
+      // ---- charge-types: end ----
       anchors.fill: parent
       // Suspends the panel's dispatcher while the dropdown's popup owns the keys. // charge-types
       blocked: chargeTypesDropdown.popupOpen // charge-types
