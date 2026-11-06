@@ -30,7 +30,7 @@ Treat `Panel.qml` as upstream-owned: add code in marked insertions, not by chang
 - Add `// charge-types` to every edited upstream line.
 - Add new functions, processes, and sections rather than reformatting, reordering, or tidying upstream code; overlapping edits conflict on every sync.
 
-The only intentional upstream-line edits are keyboard-cursor hooks (`onMoveRequested`, `onActivateRequested`, the key catcher's `blocked`, and the profile button's `hasCursor` / `onHovered`), `refresh()`'s closing brace for the fenced probe hook, and the battery `InfoPair` replaced by the health row. Any new changed line also needs a tail marker. The coverage check rejects unmarked changes.
+The only intentional upstream-line edits are keyboard-cursor hooks (`onMoveRequested`, `onActivateRequested`, the key catcher's `blocked`, and the profile button's `hasCursor` / `onHovered`), `refresh()`'s closing brace for the fenced probe hook, the battery `InfoPair` replaced by the health row, and the charge-limit `value` replaced by `Utils.ceilingText`. Any new changed line also needs a tail marker. The coverage check rejects unmarked changes.
 
 `Model.js` must stay byte-identical; upstream tests it in `test/shell.d/power-test.sh`. `manifest.json` cannot carry comment markers, so review its metadata delta in the diff. `Utils.js` is new and wholly fork-owned.
 
@@ -69,7 +69,7 @@ Files identical to the pinned base (normally `Model.js`) do not appear. The sync
 
 ### Track the installed release
 
-Sync against the Omarchy **release branch installed on your machine**, not the `quattro` development branch. Releases form a fast-forward chain; `quattro` can introduce APIs not present in any released shell. Update Omarchy first, then run `tools/sync-upstream`.
+Sync against the Omarchy **release branch installed on your machine**, not the `quattro` development branch. Releases form a fast-forward chain, usually; `quattro` can introduce APIs not present in any released shell. Update Omarchy first, then run `tools/sync-upstream`. Upstream has not always kept the release line a fast-forward chain: see [Pin exception](#pin-exception-v450) below.
 
 A cloned panel depends on shell-provided types and singleton members. Newer panel code can silently fail to load on an older shell:
 
@@ -77,6 +77,15 @@ A cloned panel depends on shell-provided types and singleton members. Newer pane
 | --- | --- | --- |
 | `c231097d` | `ShellIpc` and its `qmldir` entry | `ShellIpc is not a type`; panel does not load |
 | `b18ab495` | `Style.duration()`, `Style.reduceMotion` | Missing `Style` members |
+| `201de1c0` | `BarIconButton.labelText` | `labelText` is not a property; the percentage label is not drawn |
+| `4c1b4cb3` | `KeyboardPanel`'s `content:` and `loadedContent` | Unknown to the older `KeyboardPanel`; the panel body is not set up as written, and code that reaches into it fails |
+| `84cfb939` | `Commons.I18n` (`t`, `formatNumber`) | `Commons.I18n` is undefined; labels and readings fail to evaluate |
+
+### Pin exception (v4.5.0)
+
+`tools/sync-upstream` refuses to merge when the pinned base is not an ancestor of the release branch. Upstream rebased the v4.x release line between v4.0.6 and v4.5.0, so the v4.0.6 tag is not an ancestor of `v4-5-0`, and no commit on `v4-5-0` has the base's `Panel.qml`. The v4.5.0 merge was therefore run by hand: a three-way merge against the v4.0.6 files, with `sha` set to the `v4-5-0` tip by hand. The lock's header says only the tool changes `sha`; this is the one exception. It is safe because the merged file already contains the full delta, so no version is skipped. The sync commit's message has the details.
+
+The tool also cannot re-pin when a fork change and an upstream change touch the same line: each re-run reports the same conflict again, because the resolved file still differs from both the base and upstream there. Expect to set `sha` by hand after resolving that kind of conflict, and say so in the commit.
 
 Until Omarchy is updated, `--check` reporting upstream drift is informational. It also warns if `upstream.lock`'s `branch=` differs from the installed release. After syncing, run `bin/check`; it verifies `Model.js` and checks that `Panel.qml` does not outrun the installed shell API.
 

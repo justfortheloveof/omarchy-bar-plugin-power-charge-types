@@ -17,6 +17,8 @@
 #
 # Only tools/sync-upstream should change sha, and only after a conflict-free
 # merge; editing it by hand to skip a version discards the changes in between.
+# The v4-5-0 pin is the documented exception: set by hand after a manual merge
+# (docs/CONTRIBUTING.md, "Pin exception (v4.5.0)").
 sha=ac2690cd7be4f47e4a255f5e2e78d904d436b068
 path=shell/plugins/panels/power
 repo=https://github.com/omacom/omarchy.git
